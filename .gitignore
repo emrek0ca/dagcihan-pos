@@ -16,7 +16,7 @@ build/icon.png
 server/.env
 
 # Calisma zamani verisi / yedekler
-data/
+/data/
 *.db
 *.db-wal
 *.db-shm

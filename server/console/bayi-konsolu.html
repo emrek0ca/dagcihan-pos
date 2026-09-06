@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POS Bayi Konsolu</title>
+<style>
+  :root {
+    --bg: #f3f3f3;
+    --card: #ffffff;
+    --line: #e5e5e5;
+    --line-strong: #d1d1d1;
+    --text: #1b1b1b;
+    --muted: #616161;
+    --accent: #0067c0;
+    --accent-hover: #005ba1;
+    --ok: #0f7b0f;
+    --warn: #9d5d00;
+    --danger: #c42b1c;
+    --shadow: 0 2px 6px rgba(0,0,0,.09), 0 0 2px rgba(0,0,0,.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    font: 14px/1.5 "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; cursor: pointer; }
+  input, select { font: inherit; }
+
+  /* ---------- baslik cubugu ---------- */
+  .titlebar {
+    height: 44px;
+    background: #fafafa;
+    border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 14px;
+    user-select: none;
+  }
+  .titlebar .logo {
+    width: 22px; height: 22px; border-radius: 5px;
+    background: var(--accent); color: #fff;
+    display: grid; place-items: center; font-size: 12px; font-weight: 600;
+  }
+  .titlebar h1 { font-size: 14px; font-weight: 600; margin: 0; }
+  .titlebar .spacer { flex: 1; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #b0b0b0; }
+  .dot.on { background: var(--ok); }
+  .dot.off { background: var(--danger); }
+
+  /* ---------- yerlesim ---------- */
+  .shell { display: flex; height: calc(100vh - 44px); }
+  .side {
+    width: 210px; flex: none; background: #fafafa;
+    border-right: 1px solid var(--line);
+    padding: 10px 8px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .navitem {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border: 0; background: transparent; border-radius: 6px;
+    text-align: left; color: var(--text); width: 100%;
+  }
+  .navitem:hover { background: #ededed; }
+  .navitem.active { background: #eaeaea; font-weight: 600; }
+  .navitem.active::before {
+    content: ""; width: 3px; height: 16px; border-radius: 2px;
+    background: var(--accent); margin-left: -8px; margin-right: 4px;
+  }
+  .navitem span.ico { width: 16px; text-align: center; }
+  .side .spacer { flex: 1; }
+  .side .who { font-size: 12px; color: var(--muted); padding: 8px 12px; border-top: 1px solid var(--line); }
+
+  main { flex: 1; overflow: auto; padding: 22px 26px 40px; }
+  .head { display: flex; align-items: flex-end; gap: 14px; margin-bottom: 16px; }
+  .head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+  .head p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .head .spacer { flex: 1; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; box-shadow: var(--shadow); overflow: hidden;
+  }
+  .card + .card { margin-top: 16px; }
+  .card .card-head { padding: 12px 16px; border-bottom: 1px solid var(--line); font-weight: 600; }
+  .card .card-body { padding: 16px; }
+
+  /* ---------- dugmeler ---------- */
+  .btn {
+    border: 1px solid var(--line-strong); background: #fdfdfd; color: var(--text);
+    border-radius: 5px; padding: 7px 14px; min-height: 32px;
+  }
+  .btn:hover { background: #f5f5f5; }
+  .btn:active { background: #ededed; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.danger { color: var(--danger); }
+  .btn.small { padding: 4px 10px; min-height: 26px; font-size: 13px; }
+
+  /* ---------- tablo ---------- */
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  th { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; }
+  tbody tr:hover { background: #fafafa; }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.right, th.right { text-align: right; }
+  .pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 12px; font-weight: 600;
+  }
+  .pill.ok { background: #dff6dd; color: var(--ok); }
+  .pill.wait { background: #fff4ce; color: var(--warn); }
+  .pill.off { background: #fde7e9; color: var(--danger); }
+  .mono { font-family: "Cascadia Mono", Consolas, "SF Mono", monospace; }
+
+  /* ---------- form ---------- */
+  .field { margin-bottom: 13px; }
+  .field label { display: block; font-size: 13px; margin-bottom: 5px; }
+  .field .hint { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  input[type=text], input[type=email], input[type=password], input[type=number] {
+    width: 100%; padding: 7px 10px; border: 1px solid var(--line-strong);
+    border-bottom-width: 2px; border-bottom-color: #8a8a8a;
+    border-radius: 5px; background: #fff; color: var(--text);
+  }
+  input:focus { outline: none; border-bottom-color: var(--accent); }
+  .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+  /* ---------- giris ekrani ---------- */
+  .login-wrap { height: calc(100vh - 44px); display: grid; place-items: center; }
+  .login { width: 360px; }
+
+  /* ---------- diyalog ---------- */
+  .backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.35);
+    display: grid; place-items: center; padding: 20px; z-index: 50;
+  }
+  .dialog {
+    background: var(--card); border-radius: 8px; width: 100%; max-width: 460px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.25); overflow: hidden;
+  }
+  .dialog h3 { margin: 0; padding: 16px 20px 0; font-size: 18px; }
+  .dialog .body { padding: 14px 20px 4px; }
+  .dialog .foot {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 16px 20px; background: #fafafa; border-top: 1px solid var(--line); margin-top: 16px;
+  }
+  .codebox {
+    text-align: center; padding: 18px; background: #f7f9fc;
+    border: 1px dashed var(--accent); border-radius: 8px; margin: 6px 0 12px;
+  }
+  .codebox .code {
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: 30px; font-weight: 700; letter-spacing: 3px; color: var(--accent);
+    user-select: all; word-break: break-all;
+  }
+  .codebox .sub { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+  /* ---------- bildirim ---------- */
+  .toast {
+    position: fixed; right: 18px; bottom: 18px; z-index: 90;
+    background: #1f1f1f; color: #fff; padding: 11px 16px; border-radius: 6px;
+    box-shadow: 0 4px 14px rgba(0,0,0,.3); max-width: 380px;
+  }
+  .toast.err { background: var(--danger); }
+  .empty { padding: 34px; text-align: center; color: var(--muted); }
+  .err-inline { color: var(--danger); font-size: 13px; margin-bottom: 10px; min-height: 18px; }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="logo">P</div>
+  <h1>POS Bayi Konsolu</h1>
+  <div class="spacer"></div>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">baglanti kontrol ediliyor</span></div>
+</div>
+
+<div id="root"></div>
+<div id="dialogHost"></div>
+<div id="toastHost"></div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+ *  Sunucu adresi. Tek merkezi sunucu oldugu icin sabittir.
+ * ===================================================================== */
+var API = "https://pos-api.witlydesign.com";
+
+var state = { token: null, user: null, view: "customers", customers: [], terminals: [],
+              showArchived: false };
+
+/* ------------------------------ yardimcilar ------------------------------ */
+function el(tag, attrs, kids) {
+  var n = document.createElement(tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) {
+    if (k === "class") n.className = attrs[k];
+    else if (k === "html") n.innerHTML = attrs[k];
+    else if (k === "text") n.textContent = attrs[k];
+    else if (k.slice(0, 2) === "on") n.addEventListener(k.slice(2), attrs[k]);
+    else if (attrs[k] !== null && attrs[k] !== undefined) n.setAttribute(k, attrs[k]);
+  });
+  (kids || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+function clear(node) { while (node.firstChild) node.removeChild(node.firstChild); }
+
+function toast(message, isError) {
+  var host = document.getElementById("toastHost");
+  clear(host);
+  var t = el("div", { class: isError ? "toast err" : "toast", text: message });
+  host.appendChild(t);
+  setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, isError ? 6000 : 3000);
+}
+
+function fmtDate(value) {
+  if (!value) return "-";
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return "-";
+  return d.toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", year: "numeric",
+                                     hour: "2-digit", minute: "2-digit" });
+}
+function fmtAgo(value) {
+  if (!value) return "hic";
+  var diff = Date.now() - new Date(value).getTime();
+  if (diff < 0 || isNaN(diff)) return "-";
+  var m = Math.floor(diff / 60000);
+  if (m < 1) return "az once";
+  if (m < 60) return m + " dk once";
+  var h = Math.floor(m / 60);
+  if (h < 24) return h + " saat once";
+  return Math.floor(h / 24) + " gun once";
+}
+
+/* ------------------------------ sunucu cagrisi ------------------------------ */
+function api(method, path, body) {
+  var opts = { method: method, headers: {}, mode: "cors" };
+  if (state.token) opts.headers["Authorization"] = "Bearer " + state.token;
+  if (body !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(body);
+  }
+  return fetch(API + path, opts).then(function (res) {
+    return res.text().then(function (raw) {
+      var data = null;
+      try { data = raw ? JSON.parse(raw) : null; } catch (e) { data = null; }
+      if (!res.ok) {
+        var msg = (data && data.error && data.error.message) || ("Sunucu hatasi (HTTP " + res.status + ")");
+        var err = new Error(msg);
+        err.status = res.status;
+        err.code = data && data.error && data.error.code;
+        throw err;
+      }
+      return data;
+    });
+  }, function () {
+    throw new Error("Sunucuya ulasilamiyor. Internet baglantisini kontrol edin.");
+  });
+}
+
+function health() {
+  var dot = document.getElementById("dot");
+  var text = document.getElementById("statusText");
+  return fetch(API + "/health", { mode: "cors" }).then(function (r) {
+    if (!r.ok) throw new Error();
+    dot.className = "dot on";
+    text.textContent = "sunucu bagli";
+    return true;
+  }, function () {
+    dot.className = "dot off";
+    text.textContent = "sunucuya ulasilamiyor";
+    return false;
+  });
+}
+
+/* ------------------------------ diyalog ------------------------------ */
+function dialog(title, bodyNodes, buttons) {
+  var host = document.getElementById("dialogHost");
+  clear(host);
+  var box = el("div", { class: "dialog" }, [el("h3", { text: title })]);
+  var body = el("div", { class: "body" }, bodyNodes);
+  box.appendChild(body);
+  var foot = el("div", { class: "foot" });
+  buttons.forEach(function (b) { foot.appendChild(b); });
+  box.appendChild(foot);
+  var backdrop = el("div", { class: "backdrop" }, [box]);
+  backdrop.addEventListener("mousedown", function (e) { if (e.target === backdrop) closeDialog(); });
+  host.appendChild(backdrop);
+  var first = body.querySelector("input");
+  if (first) first.focus();
+  return { body: body, close: closeDialog };
+}
+function closeDialog() { clear(document.getElementById("dialogHost")); }
+document.addEventListener("keydown", function (e) { if (e.key === "Escape") closeDialog(); });
+
+/* ------------------------------ giris ekrani ------------------------------ */
+function renderLogin() {
+  var root = document.getElementById("root");
+  clear(root);
+  var email = el("input", { type: "email", id: "li-email", autocomplete: "username" });
+  var pass = el("input", { type: "password", id: "li-pass", autocomplete: "current-password" });
+  var errBox = el("div", { class: "err-inline" });
+  var btn = el("button", { class: "btn primary", text: "Giris yap", style: "width:100%" });
+
+  function submit() {
+    errBox.textContent = "";
+    if (!email.value.trim() || !pass.value) { errBox.textContent = "E-posta ve parola gerekli."; return; }
+    btn.disabled = true; btn.textContent = "Giris yapiliyor...";
+    api("POST", "/api/v1/auth/login", { email: email.value.trim(), password: pass.value })
+      .then(function (r) {
+        state.token = r.token;
+        sessionStorage.setItem("bayi-token", r.token);
+        return api("GET", "/api/v1/auth/me");
+      })
+      .then(function (me) {
+        state.user = me;
+        pass.value = "";
+        renderApp();
+        loadAll();
+      })
+      .catch(function (e) {
+        errBox.textContent = e.message;
+        state.token = null;
+        btn.disabled = false; btn.textContent = "Giris yap";
+      });
+  }
+  btn.addEventListener("click", submit);
+  [email, pass].forEach(function (i) {
+    i.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
+  });
+
+  root.appendChild(el("div", { class: "login-wrap" }, [
+    el("div", { class: "login" }, [
+      el("div", { class: "card" }, [
+        el("div", { class: "card-head", text: "Bayi girisi" }),
+        el("div", { class: "card-body" }, [
+          el("div", { class: "field" }, [el("label", { text: "E-posta" }), email]),
+          el("div", { class: "field" }, [el("label", { text: "Parola" }), pass]),
+          errBox, btn,
+        ]),
+      ]),
+      el("p", { class: "hint", style: "text-align:center;color:var(--muted);font-size:12px;margin-top:12px",
+                text: API }),
+    ]),
+  ]));
+  email.focus();
+}
+
+/* ------------------------------ ana cerceve ------------------------------ */
+function renderApp() {
+  var root = document.getElementById("root");
+  clear(root);
+  var side = el("div", { class: "side" });
+  [["customers", "Musteriler"], ["terminals", "Kasalar"]].forEach(function (item) {
+    side.appendChild(el("button", {
+      class: "navitem" + (state.view === item[0] ? " active" : ""),
+      onclick: function () { state.view = item[0]; renderApp(); },
+    }, [el("span", { class: "ico", text: item[0] === "customers" ? "■" : "▣" }),
+        el("span", { text: item[1] })]));
+  });
+  side.appendChild(el("div", { class: "spacer" }));
+  side.appendChild(el("button", {
+    class: "navitem", onclick: function () { loadAll(); toast("Yenilendi"); },
+  }, [el("span", { class: "ico", text: "↻" }), el("span", { text: "Yenile" })]));
+  side.appendChild(el("div", { class: "who" }, [
+    el("div", { text: state.user ? state.user.displayName : "" }),
+    el("div", { text: state.user ? state.user.email : "", style: "font-size:11px" }),
+    el("button", { class: "btn small", style: "margin-top:8px", text: "Cikis", onclick: logout }),
+  ]));
+
+  var main = el("main", { id: "main" });
+  root.appendChild(el("div", { class: "shell" }, [side, main]));
+  if (state.view === "customers") renderCustomers(); else renderTerminals();
+}
+
+function logout() {
+  api("POST", "/api/v1/auth/logout").catch(function () {});
+  state.token = null; state.user = null;
+  sessionStorage.removeItem("bayi-token");
+  renderLogin();
+}
+
+function handleAuthError(e) {
+  if (e.status === 401) {
+    state.token = null;
+    sessionStorage.removeItem("bayi-token");
+    renderLogin();
+    toast("Oturum sona erdi, tekrar giris yapin.", true);
+    return true;
+  }
+  return false;
+}
+
+function loadAll() {
+  return Promise.all([
+    api("GET", "/api/v1/platform/customers"),
+    api("GET", "/api/v1/platform/terminals"),
+  ]).then(function (r) {
+    state.customers = r[0] || [];
+    state.terminals = r[1] || [];
+    if (state.view === "customers") renderCustomers(); else renderTerminals();
+  }).catch(function (e) {
+    if (handleAuthError(e)) return;
+    toast(e.message, true);
+  });
+}
+
+/* ------------------------------ musteriler ------------------------------ */
+function renderCustomers() {
+  var main = document.getElementById("main");
+  if (!main) return;
+  clear(main);
+  main.appendChild(el("div", { class: "head" }, [
+    el("div", {}, [
+      el("h2", { text: "Musteriler" }),
+      el("p", { text: "Her musteri kendi verisiyle yalitilmistir. Kasa kurmak icin aktivasyon kodu uretin." }),
+    ]),
+    el("div", { class: "spacer" }),
+    el("button", {
+      class: "btn", text: state.showArchived ? "Arsivlenenleri gizle" : "Arsivlenenleri goster",
+      onclick: function () { state.showArchived = !state.showArchived; renderCustomers(); },
+    }),
+    el("button", { class: "btn primary", text: "+ Yeni musteri", onclick: newCustomerDialog }),
+  ]));
+
+  var rows = state.customers.filter(function (c) { return state.showArchived || c.active; });
+  var card = el("div", { class: "card" });
+  if (rows.length === 0) {
+    card.appendChild(el("div", { class: "empty",
+      text: state.customers.length === 0
+        ? "Henuz musteri yok. “Yeni musteri” ile baslayin."
+        : "Aktif musteri yok. Arsivlenenleri gostermeyi deneyin." }));
+  } else {
+    var tbody = el("tbody");
+    rows.forEach(function (c) {
+      tbody.appendChild(el("tr", { style: c.active ? null : "opacity:.55" }, [
+        el("td", {}, [
+          el("div", {}, [
+            el("span", { text: c.name, style: "font-weight:600" }),
+            c.active ? null : el("span", { class: "pill off", text: "Arsiv", style: "margin-left:8px" }),
+          ]),
+          el("div", { class: "mono", text: c.code, style: "font-size:12px;color:var(--muted)" }),
+        ]),
+        el("td", { text: c.store_name || "-" }),
+        el("td", { class: "right", text: c.active_count + " / " + c.terminal_count }),
+        el("td", { text: String(c.product_count) }),
+        el("td", { text: fmtAgo(c.last_seen_at) }),
+        el("td", { class: "right" }, [
+          c.active ? el("button", {
+            class: "btn small primary", text: "Aktivasyon kodu",
+            onclick: function () { enrollDialog(c); },
+          }) : null,
+          el("button", {
+            class: c.active ? "btn small danger" : "btn small",
+            text: c.active ? "Arsivle" : "Geri ac",
+            style: "margin-left:6px",
+            onclick: function () { archiveDialog(c); },
+          }),
+        ]),
+      ]));
+    });
+    card.appendChild(el("table", {}, [
+      el("thead", {}, [el("tr", {}, [
+        el("th", { text: "Musteri" }), el("th", { text: "Magaza" }),
+        el("th", { class: "right", text: "Aktif kasa" }), el("th", { text: "Urun" }),
+        el("th", { text: "Son baglanti" }), el("th", { class: "right", text: "" }),
+      ])]),
+      tbody,
+    ]));
+  }
+  main.appendChild(card);
+}
+
+function newCustomerDialog() {
+  var code = el("input", { type: "text", placeholder: "OZTURK-MARKET", maxlength: "32" });
+  var name = el("input", { type: "text", placeholder: "Ozturk Market" });
+  var email = el("input", { type: "email", placeholder: "(istege bagli)" });
+  var pass = el("input", { type: "text", placeholder: "en az 12 karakter" });
+  var err = el("div", { class: "err-inline" });
+
+  name.addEventListener("input", function () {
+    if (code.dataset.touched) return;
+    code.value = name.value.toLocaleUpperCase("tr-TR")
+      .replace(/[ıİ]/g, "I").replace(/[şŞ]/g, "S").replace(/[ğĞ]/g, "G")
+      .replace(/[üÜ]/g, "U").replace(/[öÖ]/g, "O").replace(/[çÇ]/g, "C")
+      .replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32);
+  });
+  code.addEventListener("input", function () { code.dataset.touched = "1"; });
+
+  var save = el("button", { class: "btn primary", text: "Olustur" });
+  var d = dialog("Yeni musteri", [
+    el("div", { class: "field" }, [el("label", { text: "Musteri adi" }), name]),
+    el("div", { class: "field" }, [
+      el("label", { text: "Musteri kodu" }), code,
+      el("div", { class: "hint", text: "Benzersiz olmali. Sonradan degistirilemez." }),
+    ]),
+    el("div", { class: "field" }, [
+      el("label", { text: "Musteri yonetici e-postasi" }), email,
+      el("div", { class: "hint", text: "Bos birakabilirsiniz. Musterinin merkezi panele girmesi gerekmiyorsa gerekmez." }),
+    ]),
+    el("div", { class: "field" }, [el("label", { text: "Yonetici parolasi" }), pass]),
+    err,
+  ], [
+    el("button", { class: "btn", text: "Vazgec", onclick: closeDialog }),
+    save,
+  ]);
+
+  save.addEventListener("click", function () {
+    err.textContent = "";
+    var payload = { code: code.value.trim(), name: name.value.trim() };
+    if (!payload.code || !payload.name) { err.textContent = "Musteri adi ve kodu zorunlu."; return; }
+    if (email.value.trim()) {
+      if (pass.value.length < 12) { err.textContent = "Yonetici parolasi en az 12 karakter olmali."; return; }
+      payload.ownerEmail = email.value.trim();
+      payload.ownerPassword = pass.value;
+    }
+    save.disabled = true; save.textContent = "Olusturuluyor...";
+    api("POST", "/api/v1/platform/customers", payload).then(function (created) {
+      closeDialog();
+      toast("Musteri olusturuldu: " + created.name);
+      return loadAll().then(function () {
+        var fresh = state.customers.filter(function (c) { return c.store_id === created.storeId; })[0];
+        if (fresh) enrollDialog(fresh);
+      });
+    }).catch(function (e) {
+      if (handleAuthError(e)) return;
+      err.textContent = e.message;
+      save.disabled = false; save.textContent = "Olustur";
+    });
+  });
+}
+
+function archiveDialog(c) {
+  var restoring = !c.active;
+  var go = el("button", { class: restoring ? "btn primary" : "btn danger",
+                          text: restoring ? "Geri ac" : "Arsivle" });
+  dialog(restoring ? "Musteriyi geri ac" : "Musteriyi arsivle", [
+    el("p", { text: restoring
+      ? c.name + " yeniden aktif olacak. Kasalari merkezle senkronize olmaya devam eder; "
+        + "pasif durumda kasada biriken satislar otomatik gonderilir."
+      : c.name + " pasife alinacak. Kasalari MERKEZLE SENKRONIZE OLAMAZ, ancak magazada "
+        + "SATIS DURMAZ: kasa cevrimdisi calismaya devam eder ve veriler kasada birikir." }),
+    el("p", { style: "color:var(--muted);font-size:12px",
+      text: "Musteri silinmez. Gecmis satislarin denetim kaydi korunur." }),
+  ], [
+    el("button", { class: "btn", text: "Vazgec", onclick: closeDialog }),
+    go,
+  ]);
+  go.addEventListener("click", function () {
+    go.disabled = true;
+    api("POST", "/api/v1/platform/customers/" + c.organization_id + "/archive", { active: restoring })
+      .then(function () {
+        closeDialog();
+        toast(restoring ? "Musteri geri acildi." : "Musteri arsivlendi.");
+        loadAll();
+      })
+      .catch(function (e) {
+        if (handleAuthError(e)) return;
+        closeDialog(); toast(e.message, true);
+      });
+  });
+}
+
+/* ------------------------------ aktivasyon kodu ------------------------------ */
+function enrollDialog(customer) {
+  var terminal = el("input", { type: "text", value: "KASA-1" });
+  var hours = el("input", { type: "number", value: "24", min: "1", max: "168" });
+  var err = el("div", { class: "err-inline" });
+  var make = el("button", { class: "btn primary", text: "Kod uret" });
+
+  dialog("Aktivasyon kodu - " + customer.name, [
+    el("div", { class: "row2" }, [
+      el("div", { class: "field" }, [el("label", { text: "Kasa kodu" }), terminal]),
+      el("div", { class: "field" }, [el("label", { text: "Gecerlilik (saat)" }), hours]),
+    ]),
+    el("div", { class: "hint", style: "color:var(--muted);font-size:12px",
+                text: "Kod tek kullanimliktir. POS kurulumunda “Aktivasyon kodu” alanina girilir." }),
+    err,
+  ], [
+    el("button", { class: "btn", text: "Vazgec", onclick: closeDialog }),
+    make,
+  ]);
+
+  make.addEventListener("click", function () {
+    err.textContent = "";
+    make.disabled = true; make.textContent = "Uretiliyor...";
+    api("POST", "/api/v1/platform/customers/" + customer.store_id + "/enrollment", {
+      terminalCode: terminal.value.trim() || "KASA-1",
+      validHours: Number(hours.value) || 24,
+    }).then(function (r) {
+      showCode(customer, r);
+      loadAll();
+    }).catch(function (e) {
+      if (handleAuthError(e)) return;
+      err.textContent = e.message;
+      make.disabled = false; make.textContent = "Kod uret";
+    });
+  });
+}
+
+function showCode(customer, result) {
+  var codeEl = el("div", { class: "code", text: result.enrollmentCode });
+  var copyBtn = el("button", { class: "btn primary", text: "Kopyala" });
+  copyBtn.addEventListener("click", function () {
+    copyText(result.enrollmentCode, copyBtn);
+  });
+
+  dialog("Aktivasyon kodu hazir", [
+    el("div", { class: "codebox" }, [
+      codeEl,
+      el("div", { class: "sub", text: customer.name + " · " + result.terminalCode
+                  + " · son gecerlilik " + fmtDate(result.expiresAt) }),
+    ]),
+    el("div", { class: "hint", style: "color:var(--muted);font-size:12px",
+                text: "Bu kod bir daha gosterilmez. Tek kullanimliktir; kasa aktive olunca gecersizlesir." }),
+  ], [
+    el("button", { class: "btn", text: "Kapat", onclick: closeDialog }),
+    copyBtn,
+  ]);
+}
+
+function copyText(text, btn) {
+  function done() {
+    var old = btn.textContent;
+    btn.textContent = "Kopyalandi";
+    setTimeout(function () { btn.textContent = old; }, 1600);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done, function () { fallback(); });
+  } else { fallback(); }
+
+  function fallback() {
+    // file:// veya izin verilmeyen ortamda pano API'si calismaz; secim ile kopyalanir.
+    var ta = el("textarea", { style: "position:fixed;opacity:0" });
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = false;
+    try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok) done(); else toast("Kopyalanamadi. Kodu elle secip kopyalayin.", true);
+  }
+}
+
+/* ------------------------------ kasalar ------------------------------ */
+function renderTerminals() {
+  var main = document.getElementById("main");
+  if (!main) return;
+  clear(main);
+  main.appendChild(el("div", { class: "head" }, [
+    el("div", {}, [
+      el("h2", { text: "Kasalar" }),
+      el("p", { text: "Tum musterilerin kasa cihazlari ve senkronizasyon durumu." }),
+    ]),
+  ]));
+
+  var card = el("div", { class: "card" });
+  if (state.terminals.length === 0) {
+    card.appendChild(el("div", { class: "empty", text: "Kayitli kasa yok." }));
+  } else {
+    var tbody = el("tbody");
+    state.terminals.forEach(function (t) {
+      var pill = t.activation_state === "ACTIVE" ? ["ok", "Aktif"]
+        : t.activation_state === "PENDING" ? ["wait", "Kod bekliyor"] : ["off", "Iptal"];
+      tbody.appendChild(el("tr", {}, [
+        el("td", {}, [
+          el("div", { text: t.customer_name, style: "font-weight:600" }),
+          el("div", { class: "mono", text: t.customer_code, style: "font-size:12px;color:var(--muted)" }),
+        ]),
+        el("td", { class: "mono", text: t.code }),
+        el("td", {}, [el("span", { class: "pill " + pill[0], text: pill[1] })]),
+        el("td", { text: fmtAgo(t.last_seen_at) }),
+        el("td", { text: t.app_version || "-" }),
+        el("td", { class: "right" }, [
+          t.activation_state === "REVOKED" ? el("span", { text: "-" })
+            : el("button", {
+                class: "btn small danger", text: "Iptal et",
+                onclick: function () { revokeTerminal(t); },
+              }),
+        ]),
+      ]));
+    });
+    card.appendChild(el("table", {}, [
+      el("thead", {}, [el("tr", {}, [
+        el("th", { text: "Musteri" }), el("th", { text: "Kasa" }), el("th", { text: "Durum" }),
+        el("th", { text: "Son baglanti" }), el("th", { text: "Surum" }), el("th", { class: "right", text: "" }),
+      ])]),
+      tbody,
+    ]));
+  }
+  main.appendChild(card);
+}
+
+function revokeTerminal(t) {
+  var reason = el("input", { type: "text", placeholder: "orn. cihaz degisti" });
+  var go = el("button", { class: "btn danger", text: "Iptal et" });
+  dialog("Kasayi iptal et", [
+    el("p", { text: t.customer_name + " – " + t.code + " kasasinin token'i gecersiz kilinacak. "
+                  + "Cihaz bir daha senkronize olamaz; yeniden kurmak icin yeni aktivasyon kodu gerekir." }),
+    el("div", { class: "field" }, [el("label", { text: "Sebep (istege bagli)" }), reason]),
+  ], [
+    el("button", { class: "btn", text: "Vazgec", onclick: closeDialog }),
+    go,
+  ]);
+  go.addEventListener("click", function () {
+    go.disabled = true; go.textContent = "Iptal ediliyor...";
+    api("POST", "/api/v1/platform/terminals/" + t.id + "/revoke", { reason: reason.value.trim() || null })
+      .then(function () { closeDialog(); toast("Kasa iptal edildi."); loadAll(); })
+      .catch(function (e) {
+        if (handleAuthError(e)) return;
+        closeDialog(); toast(e.message, true);
+      });
+  });
+}
+
+/* ------------------------------ acilis ------------------------------ */
+health();
+setInterval(health, 30000);
+
+state.token = sessionStorage.getItem("bayi-token");
+if (state.token) {
+  api("GET", "/api/v1/auth/me").then(function (me) {
+    state.user = me;
+    renderApp();
+    loadAll();
+  }).catch(function () {
+    state.token = null;
+    sessionStorage.removeItem("bayi-token");
+    renderLogin();
+  });
+} else {
+  renderLogin();
+}
+</script>
+</body>
+</html>

@@ -17,6 +17,7 @@ Merkezi POS platform komutlari
   org:create <kod> <ad>         Organizasyon olustur
   store:create <orgKod> <kod> <ad>
   user:create <orgKod> <eposta> <ad> <parola> <rol>
+  platform:admin <eposta> [true|false]          Bayi yetkisi ver/al
   device:create <magazaKod> <terminalKod> <ad>   Aktivasyon kodu uretir
   device:list
   status                        Genel durum ozeti
@@ -98,6 +99,18 @@ async function run(): Promise<void> {
           return user!.id;
         });
         console.log(JSON.stringify({ userId: result, email, role }));
+        break;
+      }
+
+      case 'platform:admin': {
+        const [email, flag] = args;
+        if (!email) { usage(); process.exitCode = 1; break; }
+        const value = flag === undefined ? true : flag === 'true';
+        const row = await db.one<{ email: string; is_platform_admin: boolean }>(
+          `UPDATE users SET is_platform_admin = $2, updated_at = now()
+            WHERE lower(email) = lower($1) RETURNING email, is_platform_admin`, [email, value]);
+        if (row === undefined) throw new Error(`Kullanici yok: ${email}`);
+        console.log(JSON.stringify(row));
         break;
       }
 

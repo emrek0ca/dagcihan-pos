@@ -242,6 +242,14 @@ export class SyncWorker {
         this.stop();
         return;
       }
+      if (error.code === 'CUSTOMER_INACTIVE') {
+        // Musteri hesabi merkezde pasife alinmis. SATIS DURMAZ: kasa cevrimdisi
+        // calismaya devam eder, olaylar outbox'ta birikir ve hesap yeniden
+        // acildiginda hicbir kayip olmadan gonderilir.
+        this.#setState('ERROR', 'Merkezi hesabiniz pasif durumda. Satis devam eder, '
+          + 'veriler kasada birikir. Tedarikcinizle gorusun.');
+        return;
+      }
       if (error.status === 401) {
         this.#setState('ERROR', 'Cihaz token gecersiz. Kasanin yeniden kaydedilmesi gerekiyor.');
         return;

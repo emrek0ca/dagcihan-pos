@@ -184,3 +184,32 @@ bu alanları maskeler).
 - Her istekte organizasyon/mağaza kapsam kontrolü
 - Rate limit, gövde boyutu sınırı, güvenlik başlıkları, parametreli SQL
 - `audit_log` append-only (trigger korumalı)
+
+## Bayi konsolu (musteri ve aktivasyon kodu yonetimi)
+
+`console/bayi-konsolu.html` tek dosyalik bir yonetim sayfasidir; masaustunden
+cift tiklayarak acilir, sunucuya HTTPS uzerinden baglanir. Kurulum gerektirmez.
+
+**Yetki.** Konsol yalnizca `users.is_platform_admin = true` olan kullanicilara
+acilir. Bu bayrak rol/permission sisteminin disindadir; cunku organizasyon
+kapsami DISINA cikan tek yetkidir ve bir musteri yoneticisine yanlislikla
+verilmemelidir. Vermek icin:
+
+```
+node dist/cli.js platform:admin <eposta> true
+```
+
+**Veri modeli.** Her musteri KENDI organizasyonudur. Urun katalogu, fiyatlar,
+stok ve satislar organizasyon bazinda yalitilmistir, bu yuzden musteriler
+birbirinin verisini goremez; kasa token'i da yalnizca kendi magazasini gorur.
+
+**Silme yoktur, arsivleme vardir.** Denetim kaydi append-only oldugu icin
+organizasyon silinemez (gecmis satislarin izi kaybolur). Arsivlenen musterinin
+kasalari merkeze SENKRONIZE OLAMAZ (`CUSTOMER_INACTIVE`), ancak POS cevrimdisi
+calismaya devam eder: magaza satis yapamaz hale GELMEZ, veriler kasada birikir
+ve musteri geri acildiginda kayipsiz gonderilir.
+
+**CORS.** Yerel dosyadan acilan sayfa tarayiciya `Origin: null` olarak gorunur,
+bu yuzden `CORS_ORIGINS` varsayilani `null`'dir. Baska bir kaynaktan acacaksaniz
+(orn. bir ic ag adresi) o kaynagi listeye ekleyin. `Allow-Credentials` hicbir
+zaman acilmaz.

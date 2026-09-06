@@ -50,6 +50,7 @@ async function main(): Promise<void> {
     maxBodyBytes: config.maxBodyBytes,
     rateLimit: config.rateLimit,
     trustProxy: config.trustProxy,
+    corsOrigins: config.corsOrigins,
     authenticate: (token) => authenticate(db, token),
   });
   registerRoutes(server, db, config);

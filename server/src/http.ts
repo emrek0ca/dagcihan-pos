@@ -86,6 +86,8 @@ export interface HttpServerOptions {
   readonly rateLimit: { windowMs: number; max: number };
   readonly trustProxy: boolean;
   readonly authenticate: (token: string) => Promise<Principal>;
+  /** Tarayicidan cagri yapmasina izin verilen kaynaklar. Bos ise CORS kapalidir. */
+  readonly corsOrigins?: readonly string[];
 }
 
 export class HttpServer {
@@ -155,6 +157,26 @@ export class HttpServer {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Request-Id', requestId);
     res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+
+    // CORS: yalnizca acikca izin verilen kaynaklar. Kimlik dogrulama Bearer
+    // token ile yapildigi (cerez KULLANILMADIGI) icin kaynak izni tek basina
+    // yetki vermez; token bilmeyen bir sayfa hicbir korumali veriye ulasamaz.
+    // Bu nedenle Allow-Credentials ASLA acilmaz.
+    const origin = req.headers.origin;
+    const allowed = this.#options.corsOrigins ?? [];
+    if (origin !== undefined && allowed.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Request-Id');
+      res.setHeader('Access-Control-Max-Age', '600');
+    }
+    if (req.method === 'OPTIONS') {
+      // Izin verilmeyen kaynakta da 204 doneriz; basliklar olmadigi icin
+      // tarayici istegi zaten engeller, ama uc nokta varligi sizdirilmaz.
+      res.writeHead(204).end();
+      return;
+    }
 
     try {
       const route = this.#match(req.method ?? 'GET', url.pathname);

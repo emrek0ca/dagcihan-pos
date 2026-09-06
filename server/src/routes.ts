@@ -11,7 +11,7 @@ import type { ServerConfig } from './lib/config.ts';
 import { badRequest, conflict, forbidden, notFound, unauthorized, validation } from './lib/errors.ts';
 import { generateEnrollmentCode, generateToken, hashToken, hashPassword } from './lib/crypto.ts';
 import {
-  loginUser, logoutUser, requirePermission, requireStoreScope,
+  loginUser, logoutUser, requirePermission, requireStoreScope, requirePlatformAdmin,
   type Principal, type TerminalPrincipal, type UserPrincipal,
 } from './auth.ts';
 import { processEvents, validateEvent } from './sync.ts';
@@ -21,6 +21,12 @@ function asUser(principal: Principal | null): UserPrincipal {
     throw forbidden('Bu islem icin kullanici oturumu gerekir');
   }
   return principal;
+}
+
+function requirePlatformAdminUser(principal: Principal | null): UserPrincipal {
+  const user = asUser(principal);
+  requirePlatformAdmin(user);
+  return user;
 }
 
 function asTerminal(principal: Principal | null): TerminalPrincipal {
@@ -278,6 +284,221 @@ export function registerRoutes(server: HttpServer, db: Database, config: ServerC
         ]);
     });
     context.log.warn('terminal iptal edildi', { terminalId: id });
+    return { ok: true };
+  });
+
+
+  // ============================ /platform ============================
+  //
+  // Bayi (satici) uc noktalari. HER MUSTERI KENDI ORGANIZASYONUDUR: urun
+  // katalogu, fiyat, stok ve satis verisi organizasyon bazinda yalitilmistir,
+  // bu yuzden musteriler birbirinin verisini goremez. Organizasyonlar arasi
+  // islem yapan tek yer burasidir ve yalnizca is_platform_admin acar.
+
+  /** Musteri listesi: organizasyon + magaza + terminal ozeti */
+  server.route('GET', '/api/v1/platform/customers', async (context) => {
+    requirePlatformAdmin(context.principal!);
+    return db.query(
+      `SELECT o.id AS organization_id, o.code, o.name, o.created_at,
+              s.id AS store_id, s.code AS store_code, s.name AS store_name,
+              (SELECT COUNT(*) FROM terminals t WHERE t.store_id = s.id)::int AS terminal_count,
+              (SELECT COUNT(*) FROM terminals t
+                WHERE t.store_id = s.id AND t.activation_state = 'ACTIVE')::int AS active_count,
+              (SELECT MAX(t.last_seen_at) FROM terminals t WHERE t.store_id = s.id) AS last_seen_at,
+              (SELECT COUNT(*) FROM products p WHERE p.organization_id = o.id)::int AS product_count,
+              o.active
+         FROM organizations o
+         LEFT JOIN stores s ON s.organization_id = o.id
+        ORDER BY o.created_at DESC, s.code`,
+    );
+  });
+
+  /** Yeni musteri: organizasyon + magaza + stok lokasyonu (+ istege bagli yonetici) */
+  server.route('POST', '/api/v1/platform/customers', async (context) => {
+    const user = requirePlatformAdminUser(context.principal!);
+    const code = str(context.body.code, 'code').toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9_-]{1,31}$/.test(code)) {
+      throw validation('Musteri kodu 2-32 karakter olmali; harf, rakam, - ve _ kullanin', { field: 'code' });
+    }
+    const name = str(context.body.name, 'name');
+    const storeName = optional(context.body.storeName) ?? name;
+    const ownerEmail = optional(context.body.ownerEmail);
+    const ownerPassword = optional(context.body.ownerPassword);
+    if (ownerEmail !== null && (ownerPassword === null || ownerPassword.length < 12)) {
+      throw validation('Yonetici parolasi en az 12 karakter olmali', { field: 'ownerPassword' });
+    }
+
+    const existing = await db.one<{ id: string }>(
+      'SELECT id FROM organizations WHERE code = $1', [code]);
+    if (existing !== undefined) throw conflict('Bu musteri kodu zaten kullaniliyor');
+
+    const result = await db.tx(async (tx) => {
+      const org = await tx.one<{ id: string }>(
+        'INSERT INTO organizations (code, name) VALUES ($1,$2) RETURNING id', [code, name]);
+      const store = await tx.one<{ id: string }>(
+        `INSERT INTO stores (organization_id, code, name) VALUES ($1,'MERKEZ',$2) RETURNING id`,
+        [org!.id, storeName]);
+      await tx.exec(
+        `INSERT INTO inventory_locations (store_id, code, name, kind)
+         VALUES ($1,'MAGAZA','Magaza Rafi','STORE')
+         ON CONFLICT (store_id, code) DO NOTHING`, [store!.id]);
+
+      let ownerId: string | null = null;
+      if (ownerEmail !== null && ownerPassword !== null) {
+        const { hash, salt } = hashPassword(ownerPassword);
+        const created = await tx.one<{ id: string }>(
+          `INSERT INTO users (organization_id, email, display_name, password_hash, password_salt)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [org!.id, ownerEmail, storeName, hash, salt]);
+        // Musteri yoneticisi 'admin' olur; 'owner' DEGIL. org.manage yetkisi
+        // bayide kalir, boylece musteri baska magaza/organizasyon acamaz.
+        await tx.exec(
+          `INSERT INTO user_roles (user_id, role_code) VALUES ($1,'admin')`, [created!.id]);
+        ownerId = created!.id;
+      }
+
+      await tx.exec(
+        `INSERT INTO audit_log (organization_id, store_id, actor_type, actor_id, actor_name,
+                                action, entity_type, entity_id, after_state, request_id, ip)
+         VALUES ($1::uuid,$2,'USER',$3,$4,'platform.customer_created','organization',$1,$5,$6,$7)`,
+        [
+          org!.id, store!.id, user.userId, user.displayName,
+          JSON.stringify({ code, name, storeName, ownerEmail }), context.requestId, context.ip,
+        ]);
+      return { organizationId: org!.id, storeId: store!.id, ownerId };
+    });
+
+    context.log.info('musteri olusturuldu', { code, organizationId: result.organizationId });
+    return { ...result, code, name, storeCode: 'MERKEZ' };
+  });
+
+  /** Bu musteri icin tek kullanimlik aktivasyon kodu uret */
+  server.route('POST', '/api/v1/platform/customers/:storeId/enrollment', async (context) => {
+    const user = requirePlatformAdminUser(context.principal!);
+    const storeId = str(context.params.storeId, 'storeId');
+    const store = await db.one<{ organization_id: string; name: string; active: boolean }>(
+      `SELECT s.organization_id, s.name, o.active
+         FROM stores s JOIN organizations o ON o.id = s.organization_id
+        WHERE s.id = $1`, [storeId]);
+    if (store === undefined) throw notFound('Musteri magazasi bulunamadi');
+    // Arsivlenmis musteriye kod uretilmez: uretilse bile kasa senkronize olamaz,
+    // kurulum yapan kisiyi bosuna ugrastirmamak icin burada durdururuz.
+    if (!store.active) throw conflict('Musteri arsivde. Once geri acin.');
+
+    const terminalCode = (optional(context.body.terminalCode) ?? 'KASA-1').toUpperCase();
+    const enrollment = generateEnrollmentCode();
+    const hours = intOf(context.body.validHours, 'validHours', 24);
+    if (hours < 1 || hours > 168) throw validation('validHours 1-168 arasinda olmali');
+    const expiresAt = new Date(Date.now() + hours * 3600_000);
+
+    const terminalId = await db.tx(async (tx) => {
+      const terminal = await tx.one<{ id: string }>(
+        `INSERT INTO terminals (store_id, code, name, activation_state)
+         VALUES ($1,$2,$3,'PENDING')
+         ON CONFLICT (store_id, code) DO UPDATE SET name = EXCLUDED.name
+         RETURNING id`,
+        [storeId, terminalCode, optional(context.body.name) ?? terminalCode]);
+      await tx.exec(
+        `INSERT INTO enrollment_codes (store_id, code_hash, code_prefix, terminal_code,
+                                       expires_at, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [storeId, enrollment.hash, enrollment.prefix, terminalCode, expiresAt, user.userId]);
+      await tx.exec(
+        `INSERT INTO audit_log (organization_id, store_id, terminal_id, actor_type, actor_id,
+                                actor_name, action, entity_type, entity_id, after_state, request_id, ip)
+         VALUES ($1,$2,$3::uuid,'USER',$4,$5,'platform.enrollment_created','terminal',$3,$6,$7,$8)`,
+        [
+          store.organization_id, storeId, terminal!.id, user.userId, user.displayName,
+          JSON.stringify({ terminalCode, expiresAt }), context.requestId, context.ip,
+        ]);
+      return terminal!.id;
+    });
+
+    // Kod DUZ METIN olarak yalnizca burada doner; veritabaninda ozeti saklanir.
+    return {
+      terminalId, terminalCode, storeName: store.name,
+      enrollmentCode: enrollment.plaintext, expiresAt,
+    };
+  });
+
+  /**
+   * Musteriyi arsivle / geri ac.
+   *
+   * SILME YOKTUR: denetim kaydi append-only oldugu icin organizasyon silinemez
+   * ve silinmemelidir (gecmis satislarin izi kaybolur). Arsivlenen musterinin
+   * kasalari merkeze SENKRONIZE OLAMAZ; ama kasa cevrimdisi calismaya devam
+   * eder, yani magaza satis yapamaz hale GELMEZ.
+   */
+  server.route('POST', '/api/v1/platform/customers/:organizationId/archive', async (context) => {
+    const user = requirePlatformAdminUser(context.principal!);
+    const organizationId = str(context.params.organizationId, 'organizationId');
+    const active = context.body.active === true;
+    if (organizationId === user.organizationId) {
+      throw validation('Kendi organizasyonunuzu arsivleyemezsiniz');
+    }
+    const org = await db.one<{ code: string }>(
+      'SELECT code FROM organizations WHERE id = $1', [organizationId]);
+    if (org === undefined) throw notFound('Musteri bulunamadi');
+
+    await db.tx(async (tx) => {
+      await tx.exec(
+        'UPDATE organizations SET active = $2, updated_at = now() WHERE id = $1',
+        [organizationId, active]);
+      await tx.exec(
+        `INSERT INTO audit_log (organization_id, actor_type, actor_id, actor_name,
+                                action, entity_type, entity_id, after_state, request_id, ip)
+         VALUES ($1::uuid,'USER',$2,$3,$4,'organization',$1,$5,$6,$7)`,
+        [
+          organizationId, user.userId, user.displayName,
+          active ? 'platform.customer_restored' : 'platform.customer_archived',
+          JSON.stringify({ active }), context.requestId, context.ip,
+        ]);
+    });
+    context.log.warn('musteri durumu degisti', { code: org.code, active });
+    return { ok: true, active };
+  });
+
+  /** Tum musterilerin terminalleri */
+  server.route('GET', '/api/v1/platform/terminals', async (context) => {
+    requirePlatformAdmin(context.principal!);
+    return db.query(
+      `SELECT t.id, t.code, t.name, t.activation_state, t.activated_at, t.revoked_at,
+              t.last_seen_at, t.app_version, s.id AS store_id, s.name AS store_name,
+              o.code AS customer_code, o.name AS customer_name,
+              ds.last_push_at, ds.last_local_sequence
+         FROM terminals t
+         JOIN stores s ON s.id = t.store_id
+         JOIN organizations o ON o.id = s.organization_id
+         LEFT JOIN device_sync_state ds ON ds.terminal_id = t.id
+        ORDER BY o.code, t.code`);
+  });
+
+  /** Terminali iptal et (calinan/degisen kasa) */
+  server.route('POST', '/api/v1/platform/terminals/:id/revoke', async (context) => {
+    const user = requirePlatformAdminUser(context.principal!);
+    const id = str(context.params.id, 'id');
+    const terminal = await db.one<{ store_id: string; organization_id: string }>(
+      `SELECT t.store_id, s.organization_id FROM terminals t JOIN stores s ON s.id = t.store_id
+        WHERE t.id = $1`, [id]);
+    if (terminal === undefined) throw notFound('Terminal bulunamadi');
+
+    await db.tx(async (tx) => {
+      await tx.exec(
+        `UPDATE terminals SET activation_state='REVOKED', revoked_at=now(), revoked_reason=$2
+          WHERE id=$1`, [id, optional(context.body.reason)]);
+      await tx.exec(
+        'UPDATE terminal_tokens SET revoked_at = now() WHERE terminal_id = $1 AND revoked_at IS NULL',
+        [id]);
+      await tx.exec(
+        `INSERT INTO audit_log (organization_id, store_id, terminal_id, actor_type, actor_id,
+                                actor_name, action, entity_type, entity_id, after_state, request_id)
+         VALUES ($1,$2,$3::uuid,'USER',$4,$5,'platform.terminal_revoked','terminal',$3,$6,$7)`,
+        [
+          terminal.organization_id, terminal.store_id, id, user.userId, user.displayName,
+          JSON.stringify({ reason: optional(context.body.reason) }), context.requestId,
+        ]);
+    });
+    context.log.warn('terminal iptal edildi (platform)', { terminalId: id });
     return { ok: true };
   });
 

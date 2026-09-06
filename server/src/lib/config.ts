@@ -16,6 +16,13 @@ export interface ServerConfig {
   readonly syncBatchMax: number;
   readonly sessionTtlHours: number;
   readonly deviceTokenTtlDays: number | null;
+  /**
+   * Tarayicidan cagri yapabilecek kaynaklar. Masaustundeki yerel HTML dosyasi
+   * (file://) tarayiciya "null" kaynagi olarak gorunur, bu yuzden varsayilan
+   * listede "null" vardir. Kimlik dogrulama cerez degil Bearer token ile
+   * yapildigindan, kaynak izni tek basina hicbir yetki vermez.
+   */
+  readonly corsOrigins: readonly string[];
 }
 
 function required(name: string): string {
@@ -24,6 +31,12 @@ function required(name: string): string {
     throw new Error(`Zorunlu ortam degiskeni eksik: ${name}`);
   }
   return value.trim();
+}
+
+function optionalList(name: string, fallback: readonly string[]): readonly string[] {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  return raw.split(',').map((v) => v.trim()).filter((v) => v !== '');
 }
 
 function optionalInt(name: string, fallback: number): number {
@@ -54,5 +67,6 @@ export function loadConfig(): ServerConfig {
     deviceTokenTtlDays: process.env.DEVICE_TOKEN_TTL_DAYS
       ? optionalInt('DEVICE_TOKEN_TTL_DAYS', 0)
       : null,
+    corsOrigins: optionalList('CORS_ORIGINS', ['null']),
   };
 }

@@ -38,6 +38,8 @@ export interface UserPrincipal {
   readonly roles: readonly string[];
   /** Bos ise organizasyon genelinde yetkili */
   readonly storeIds: readonly string[];
+  /** Bayi/satici: organizasyonlar arasi musteri kurabilir. Musteri kullanicilarinda false. */
+  readonly isPlatformAdmin: boolean;
   readonly permissions: ReadonlySet<Permission>;
   readonly sessionId: string;
 }
@@ -72,14 +74,16 @@ async function authenticateTerminal(db: Database, token: string): Promise<Termin
   const row = await db.one<{
     token_id: string; terminal_id: string; terminal_code: string; store_id: string;
     organization_id: string; activation_state: string; revoked_at: Date | null;
-    token_revoked_at: Date | null; expires_at: Date | null;
+    token_revoked_at: Date | null; expires_at: Date | null; organization_active: boolean;
   }>(
     `SELECT tt.id AS token_id, t.id AS terminal_id, t.code AS terminal_code,
             t.store_id, s.organization_id, t.activation_state, t.revoked_at,
-            tt.revoked_at AS token_revoked_at, tt.expires_at
+            tt.revoked_at AS token_revoked_at, tt.expires_at,
+            o.active AS organization_active
        FROM terminal_tokens tt
        JOIN terminals t ON t.id = tt.terminal_id
        JOIN stores s ON s.id = t.store_id
+       JOIN organizations o ON o.id = s.organization_id
       WHERE tt.token_hash = $1`,
     [hash],
   );
@@ -96,6 +100,13 @@ async function authenticateTerminal(db: Database, token: string): Promise<Termin
   if (row.activation_state !== 'ACTIVE') {
     throw new (await import('./lib/errors.ts')).ApiError(
       'TERMINAL_NOT_ACTIVE', 'Terminal aktif degil',
+    );
+  }
+  // Arsivlenmis musteri: senkronizasyon durur. Kasa CALISMAYA DEVAM EDER
+  // (POS cevrimdisi calisabilir); yalnizca merkezle veri alisverisi kesilir.
+  if (!row.organization_active) {
+    throw new (await import('./lib/errors.ts')).ApiError(
+      'CUSTOMER_INACTIVE', 'Musteri hesabi pasif durumda',
     );
   }
 
@@ -120,9 +131,10 @@ async function authenticateUser(db: Database, token: string): Promise<UserPrinci
   const row = await db.one<{
     session_id: string; user_id: string; email: string; display_name: string;
     organization_id: string; status: string; expires_at: Date; revoked_at: Date | null;
+    is_platform_admin: boolean;
   }>(
     `SELECT us.id AS session_id, u.id AS user_id, u.email, u.display_name,
-            u.organization_id, u.status, us.expires_at, us.revoked_at
+            u.organization_id, u.status, u.is_platform_admin, us.expires_at, us.revoked_at
        FROM user_sessions us JOIN users u ON u.id = us.user_id
       WHERE us.token_hash = $1`,
     [hash],
@@ -149,6 +161,7 @@ async function authenticateUser(db: Database, token: string): Promise<UserPrinci
     // Herhangi bir rol organizasyon genelindeyse magaza kisiti yoktur
     storeIds: roleRows.some((r) => r.store_id === null) ? [] : [...new Set(storeIds)],
     permissions,
+    isPlatformAdmin: row.is_platform_admin,
     sessionId: row.session_id,
   };
 }
@@ -171,6 +184,17 @@ export function requireStoreScope(principal: Principal, storeId: string): void {
   }
   if (principal.storeIds.length > 0 && !principal.storeIds.includes(storeId)) {
     throw forbidden('Bu magaza icin yetkiniz yok');
+  }
+}
+
+/**
+ * Bayi yetkisi. Organizasyon kapsami disina CIKAN tek yetkidir, bu yuzden
+ * ayri tutulur: rol/permission tablosuna eklenseydi bir musteri yoneticisine
+ * yanlislikla verilebilirdi.
+ */
+export function requirePlatformAdmin(principal: Principal): asserts principal is UserPrincipal {
+  if (principal.kind !== 'USER' || !principal.isPlatformAdmin) {
+    throw forbidden('Bu islem yalnizca platform yoneticisine aciktir');
   }
 }
 

@@ -1,0 +1,25 @@
+node_modules/
+data/*.db
+data/*.db-wal
+data/*.db-shm
+*.log
+.DS_Store
+dist/
+runtime/
+release/
+build/icon.png
+
+# Ortam degiskenleri - gercek parolalar asla git'e girmez
+.env
+.env.*
+!.env.example
+server/.env
+
+# Calisma zamani verisi / yedekler
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Kurulum ciktilari
+*.exe

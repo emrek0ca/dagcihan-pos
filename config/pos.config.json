@@ -1,0 +1,120 @@
+{
+  "store": {
+    "name": "",
+    "addressLines": [
+      "",
+      ""
+    ],
+    "phone": "",
+    "taxOffice": "",
+    "taxNumber": "",
+    "receiptFooter": [
+      "Bizi tercih ettiginiz icin tesekkurler"
+    ]
+  },
+  "terminal": {
+    "code": "KASA-1",
+    "name": "1 Nolu Kasa"
+  },
+  "sales": {
+    "receiptSeries": "A",
+    "defaultTaxRateBp": 100,
+    "cashRounding": "NONE",
+    "maxLineAmountKurus": 500000,
+    "blockNegativeStock": false,
+    "weightedOnNonKgProduct": "REJECT",
+    "scanDedupeWindowMs": 120,
+    "priceMismatchTolerancePercent": 0
+  },
+  "permissions": {
+    "maxDiscountPercentWithoutApproval": 10,
+    "voidLineRequiresApproval": false,
+    "voidSaleRequiresApproval": true,
+    "refundRequiresApproval": true,
+    "blindRefundAllowed": false,
+    "priceOverrideRequiresApproval": true
+  },
+  "devices": {
+    "scanner": {
+      "adapter": "HID_WEDGE",
+      "serial": {
+        "port": "COM3",
+        "baudRate": 9600,
+        "dataBits": 8,
+        "parity": "none",
+        "stopBits": 1
+      },
+      "tcp": {
+        "host": "",
+        "port": 0
+      },
+      "terminatorChars": [
+        "\r",
+        "\n"
+      ],
+      "interCharTimeoutMs": 60
+    },
+    "printer": {
+      "adapter": "WINDOWS_SHARE",
+      "share": "\\\\localhost\\XP-Q805K",
+      "tcp": {
+        "host": "192.168.1.100",
+        "port": 9100
+      },
+      "serial": {
+        "port": "COM1",
+        "baudRate": 115200
+      },
+      "file": {
+        "path": "./data/receipts"
+      },
+      "codePage": "PC857_TURKISH",
+      "charactersPerLine": 48,
+      "cutAfterReceipt": true,
+      "openDrawerOnCash": true,
+      "retryDelaysMs": [
+        1000,
+        5000,
+        15000,
+        60000
+      ],
+      "maxAttempts": 8
+    },
+    "scale": {
+      "adapter": "CSV_EXPORT",
+      "tcp": {
+        "host": "192.168.1.200",
+        "port": 20304
+      },
+      "export": {
+        "path": "./data/scale-export",
+        "format": "CL_WORKS_CSV"
+      },
+      "departmentNo": 1
+    }
+  },
+  "database": {
+    "path": "./data/pos.db",
+    "backupDir": "./data/backups",
+    "backupIntervalMinutes": 30
+  },
+  "server": {
+    "host": "127.0.0.1",
+    "port": 7311
+  },
+  "sync": {
+    "enabled": true,
+    "serverUrl": "https://pos-api.witlydesign.com",
+    "intervalSeconds": 20,
+    "pushBatchSize": 50,
+    "maxAttempts": 25,
+    "baseDelayMs": 2000,
+    "maxDelayMs": 300000
+  },
+  "hardware": {
+    "setupCompletedAt": null,
+    "scannerVerifiedAt": null,
+    "printerVerifiedAt": null,
+    "scaleCalibratedAt": null
+  }
+}

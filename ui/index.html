@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>POS Kasa</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<div id="app" class="app" hidden>
+  <header class="topbar">
+    <div class="topbar-left">
+      <span class="store" id="storeName">-</span>
+      <span class="chip" id="terminalName">-</span>
+    </div>
+    <div class="topbar-right">
+      <button class="status" id="statusScanner" type="button" title="Barkod okuyucu">
+        <span class="dot"></span><span>Okuyucu</span>
+      </button>
+      <button class="status" id="statusPrinter" type="button" title="Fis kuyrugu">
+        <span class="dot"></span><span id="printerLabel">Yazici</span>
+      </button>
+      <button class="status" id="statusSync" type="button" title="Merkezi sunucu" hidden>
+        <span class="dot"></span><span id="syncLabel">Merkez</span>
+      </button>
+      <span class="chip" id="clock">--:--</span>
+      <button class="chip" id="adminChip" type="button" hidden>Yonetim</button>
+      <button class="chip user" id="userChip" type="button">Giris yap</button>
+    </div>
+  </header>
+
+  <div class="banner" id="banner" hidden></div>
+
+  <main class="main">
+    <section class="cart">
+      <div class="cart-head">
+        <span>Urun</span>
+        <span class="col-qty">Miktar</span>
+        <span class="col-price">Birim</span>
+        <span class="col-amount">Tutar</span>
+      </div>
+      <div class="cart-body" id="cartBody">
+        <div class="empty" id="cartEmpty">
+          <div class="empty-icon">⌁</div>
+          <p>Barkodu okutun</p>
+          <span>veya <b>Urun Ara</b> ile ekleyin</span>
+        </div>
+      </div>
+      <div class="cart-foot">
+        <div class="foot-item"><span>Satir</span><b id="lineCount">0</b></div>
+        <div class="foot-item"><span>Ara toplam</span><b id="subtotal">0,00</b></div>
+        <div class="foot-item discount" id="discountRow" hidden><span>Indirim</span><b id="discountTotal">0,00</b></div>
+        <div class="foot-item"><span>KDV</span><b id="taxTotal">0,00</b></div>
+      </div>
+    </section>
+
+    <aside class="side">
+      <div class="total-box">
+        <span class="total-label">TOPLAM</span>
+        <span class="total-value" id="total">0,00</span>
+        <span class="total-currency">TL</span>
+      </div>
+
+      <div class="pad">
+        <button class="btn primary big" data-action="pay">
+          <span class="key">F1</span>ODEME
+        </button>
+        <button class="btn" data-action="search"><span class="key">F2</span>Urun Ara</button>
+        <button class="btn" data-action="quantity"><span class="key">F3</span>Miktar</button>
+        <button class="btn" data-action="discount"><span class="key">F4</span>Indirim</button>
+        <button class="btn danger" data-action="voidLine"><span class="key">Del</span>Satir Sil</button>
+        <button class="btn" data-action="park"><span class="key">F6</span>Askiya Al</button>
+        <button class="btn" data-action="parked"><span class="key">F7</span>Askidakiler</button>
+        <button class="btn" data-action="reprint"><span class="key">F8</span>Fis Tekrar</button>
+        <button class="btn danger" data-action="voidSale"><span class="key">F9</span>Fis Iptal</button>
+        <button class="btn" data-action="cash"><span class="key">F10</span>Kasa</button>
+      </div>
+    </aside>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+</div>
+
+<!-- ------------------------------ Giris ------------------------------ -->
+<div class="overlay" id="loginOverlay">
+  <form class="panel login" id="loginForm">
+    <h1 id="loginStore">POS</h1>
+    <p class="sub">Kasiyer girisi</p>
+    <label>Kullanici adi
+      <input id="loginUser" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+    </label>
+    <label>PIN
+      <input id="loginPin" type="password" inputmode="numeric" autocomplete="off" required>
+    </label>
+    <div class="numpad" data-target="loginPin"></div>
+    <p class="error" id="loginError" hidden></p>
+    <button class="btn primary big" type="submit">GIRIS</button>
+  </form>
+</div>
+
+<!-- ------------------------------ Ilk kurulum ------------------------------ -->
+<div class="overlay" id="setupOverlay" hidden>
+  <form class="panel login" id="setupForm">
+    <h1>Ilk Kurulum</h1>
+    <p class="sub">Magaza bilgisi ve yonetici hesabi</p>
+    <label id="setupStoreRow">Magaza adi
+      <input id="setupStore" autocomplete="off" placeholder="Fise basilacak isim">
+    </label>
+    <label id="setupTerminalRow">Kasa kodu
+      <input id="setupTerminal" autocomplete="off" value="KASA-1">
+      <span class="hint">Birden fazla kasa varsa her birinde FARKLI olmali</span>
+    </label>
+    <label>Ad soyad
+      <input id="setupName" autocomplete="off" required>
+    </label>
+    <label>Kullanici adi
+      <input id="setupUser" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+    </label>
+    <label>PIN (en az 4 hane)
+      <input id="setupPin" type="password" inputmode="numeric" autocomplete="off" required>
+    </label>
+    <p class="error" id="setupError" hidden></p>
+    <button class="btn primary big" type="submit">HESABI OLUSTUR</button>
+  </form>
+</div>
+
+<!-- ------------------------------ Modal ------------------------------ -->
+<div class="overlay" id="modalOverlay" hidden>
+  <div class="panel" id="modalPanel">
+    <div class="panel-head">
+      <h2 id="modalTitle">-</h2>
+      <button class="close" id="modalClose" type="button" aria-label="Kapat">✕</button>
+    </div>
+    <div class="panel-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

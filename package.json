@@ -1,0 +1,89 @@
+{
+  "name": "dagcihan-pos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Magaza ici POS sistemi (CAS CL3000 / Perkon PS5700 / Xprinter XP-Q805K)",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test --test-reporter=spec \"tests/**/*.test.ts\"",
+    "test:unit": "node --test --test-reporter=spec \"tests/unit/**/*.test.ts\"",
+    "test:integration": "node --test --test-reporter=spec \"tests/integration/**/*.test.ts\"",
+    "pos": "node src/app/cli.ts",
+    "start": "node src/app/main.ts",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs && node scripts/make-icon.mjs",
+    "desktop": "npm run build && electron .",
+    "desktop:nobuild": "electron .",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:dir": "npm run build && electron-builder --dir",
+    "icon": "node scripts/make-icon.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3",
+    "typescript": "^5.7.0"
+  },
+  "main": "dist/desktop/main.js",
+  "build": {
+    "appId": "com.dagcihan.pos",
+    "productName": "Dagcihan POS",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "ui/**/*",
+      "config/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Dagcihan-POS-Kurulum-${version}.${ext}",
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "POS Kasa",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": [
+        "tr_TR"
+      ],
+      "language": "1055"
+    },
+    "mac": {
+      "target": [
+        "dir"
+      ],
+      "icon": "build/icon.png",
+      "category": "public.app-category.business"
+    },
+    "linux": {
+      "target": [
+        "dir"
+      ]
+    }
+  },
+  "author": {
+    "name": "Dagcihan Kuruyemis"
+  },
+  "homepage": "https://localhost"
+}

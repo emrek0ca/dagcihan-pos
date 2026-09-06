@@ -1,0 +1,24 @@
+{
+  "name": "dagci-pos-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Merkezi POS control-plane (PostgreSQL) - magaza POS'lari ve gelecekteki e-ticaret icin ortak veri kaynagi",
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "main": "dist/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.json && node scripts/copy-sql.mjs",
+    "start": "node dist/main.js",
+    "migrate": "node dist/cli.js migrate",
+    "test": "node --test --test-reporter=spec \"tests/**/*.test.ts\""
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.0"
+  }
+}

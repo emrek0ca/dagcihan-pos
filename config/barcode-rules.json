@@ -1,0 +1,265 @@
+{
+  "$schema": "./barcode-rules.schema.md",
+  "weightedFormatConfirmed": false,
+  "_not": [
+    "CAS CL3000'in gercek barkod formati HENUZ DOGRULANMADI.",
+    "Asagidaki kurallar ADAYDIR ve hepsi enabled=false'tur.",
+    "Yanlis kuralla yanlis fiyat hesaplamaktansa satir eklenmemesi tercih edilmistir.",
+    "",
+    "Magazada yapilacak: teraziden 1 etiket bas, okut (veya 'pos barcode try <kod>' calistir),",
+    "sonra 'pos barcode analyze' ile hangi adayin tuttugunu gor, ilgili kurali enabled=true yap",
+    "ve weightedFormatConfirmed=true olarak isaretle."
+  ],
+  "minPlainLength": 4,
+  "maxPlainLength": 48,
+  "limits": {
+    "maxWeightMilli": 50000,
+    "maxPriceKurus": 500000,
+    "minPriceKurus": 1
+  },
+  "discoveryPrefixes": [
+    "2"
+  ],
+  "rules": [
+    {
+      "id": "cas-w5-plu5-weight",
+      "description": "EAN13, prefix 20-29, 5 hane PLU, 5 hane AGIRLIK (3 ondalik)",
+      "enabled": false,
+      "priority": 10,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "20",
+        "to": "29"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 2,
+          "length": 5,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 7,
+          "length": 5,
+          "scale": 3,
+          "kind": "WEIGHT_KG"
+        }
+      }
+    },
+    {
+      "id": "cas-w5-plu5-price",
+      "description": "EAN13, prefix 20-29, 5 hane PLU, 5 hane TUTAR (2 ondalik)",
+      "enabled": false,
+      "priority": 11,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "20",
+        "to": "29"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 2,
+          "length": 5,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 7,
+          "length": 5,
+          "scale": 2,
+          "kind": "PRICE"
+        }
+      }
+    },
+    {
+      "id": "cas-w6-plu6-weight",
+      "description": "EAN13, prefix 2x, 6 hane PLU, 4 hane AGIRLIK (3 ondalik)",
+      "enabled": false,
+      "priority": 20,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "20",
+        "to": "29"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 2,
+          "length": 6,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 8,
+          "length": 4,
+          "scale": 3,
+          "kind": "WEIGHT_KG"
+        }
+      }
+    },
+    {
+      "id": "cas-w6-plu6-price",
+      "description": "EAN13, prefix 2x, 6 hane PLU, 4 hane TUTAR (2 ondalik)",
+      "enabled": false,
+      "priority": 21,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "20",
+        "to": "29"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 2,
+          "length": 6,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 8,
+          "length": 4,
+          "scale": 2,
+          "kind": "PRICE"
+        }
+      }
+    },
+    {
+      "id": "cas-w4-price-embedded-check",
+      "description": "EAN13, prefix 2x, 5 hane PLU, gomulu fiyat kontrol hanesi + 4 hane TUTAR",
+      "enabled": false,
+      "priority": 30,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "20",
+        "to": "29"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 2,
+          "length": 5,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 8,
+          "length": 4,
+          "scale": 2,
+          "kind": "PRICE",
+          "embeddedCheck": {
+            "algorithm": "PRICE_CHECK_4_GS1",
+            "offset": 7
+          }
+        }
+      }
+    },
+    {
+      "id": "cas-w4-weight-embedded-check",
+      "description": "EAN13, prefix 2x, 5 hane PLU, gomulu agirlik kontrol hanesi + 4 hane AGIRLIK",
+      "enabled": false,
+      "priority": 31,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "20",
+        "to": "29"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 2,
+          "length": 5,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 8,
+          "length": 4,
+          "scale": 3,
+          "kind": "WEIGHT_KG",
+          "embeddedCheck": {
+            "algorithm": "PRICE_CHECK_4_GS1",
+            "offset": 7
+          }
+        }
+      }
+    },
+    {
+      "id": "cas-w13-plu4-weight",
+      "description": "EAN13, prefix 3 hane, 4 hane PLU, 5 hane AGIRLIK",
+      "enabled": false,
+      "priority": 40,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "200",
+        "to": "299"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 3,
+          "length": 4,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 7,
+          "length": 5,
+          "scale": 3,
+          "kind": "WEIGHT_KG"
+        }
+      }
+    },
+    {
+      "id": "cas-w13-plu4-price",
+      "description": "EAN13, prefix 3 hane, 4 hane PLU, 5 hane TUTAR",
+      "enabled": false,
+      "priority": 41,
+      "length": 13,
+      "match": {
+        "type": "prefixRange",
+        "from": "200",
+        "to": "299"
+      },
+      "checkDigit": {
+        "algorithm": "EAN13"
+      },
+      "fields": {
+        "itemCode": {
+          "offset": 3,
+          "length": 4,
+          "lookup": "PLU",
+          "stripLeadingZeros": true
+        },
+        "value": {
+          "offset": 7,
+          "length": 5,
+          "scale": 2,
+          "kind": "PRICE"
+        }
+      }
+    }
+  ]
+}

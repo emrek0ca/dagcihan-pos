@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>POS Yonetim</title>
+<link rel="stylesheet" href="/styles.css">
+<link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<div class="admin" id="admin" hidden>
+  <nav class="sidebar">
+    <div class="brand">
+      <span class="brand-name" id="brandName">POS</span>
+      <span class="brand-sub">Yonetim</span>
+    </div>
+    <button class="nav" data-view="dashboard">Genel Bakis</button>
+    <button class="nav" data-view="products">Urunler</button>
+    <button class="nav" data-view="stock">Stok</button>
+    <button class="nav" data-view="sales">Satislar</button>
+    <button class="nav" data-view="cash">Kasa</button>
+    <button class="nav" data-view="reports">Raporlar</button>
+    <button class="nav" data-view="users">Kasiyerler</button>
+    <button class="nav" data-view="hardware">Donanim Kurulumu</button>
+    <button class="nav" data-view="printer">Yazici</button>
+    <button class="nav" data-view="scale">Terazi Barkodu</button>
+    <button class="nav" data-view="sync">Merkezi Sunucu</button>
+    <button class="nav" data-view="system">Sistem</button>
+    <div class="sidebar-foot">
+      <button class="btn primary" id="backToPos">Kasaya Don</button>
+      <span class="who" id="whoAmI">-</span>
+    </div>
+  </nav>
+  <main class="content">
+    <header class="content-head">
+      <h1 id="viewTitle">Genel Bakis</h1>
+      <div class="head-actions" id="headActions"></div>
+    </header>
+    <div class="content-body" id="viewBody"></div>
+  </main>
+  <div class="toast" id="toast" hidden></div>
+</div>
+
+<div class="overlay" id="gateOverlay">
+  <form class="panel login" id="gateForm">
+    <h1>Yonetim Girisi</h1>
+    <p class="sub">Yonetici veya kasiyer hesabi</p>
+    <label>Kullanici adi<input id="gateUser" autocomplete="off" required></label>
+    <label>PIN<input id="gatePin" type="password" inputmode="numeric" autocomplete="off" required></label>
+    <p class="error" id="gateError" hidden></p>
+    <button class="btn primary big" type="submit">GIRIS</button>
+    <button class="btn ghost" type="button" id="gateBack">Kasaya don</button>
+  </form>
+</div>
+
+<div class="overlay" id="modalOverlay" hidden>
+  <div class="panel" id="modalPanel">
+    <div class="panel-head">
+      <h2 id="modalTitle">-</h2>
+      <button class="close" id="modalClose" type="button">✕</button>
+    </div>
+    <div class="panel-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script src="/common.js"></script>
+<script src="/admin.js"></script>
+</body>
+</html>

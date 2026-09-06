@@ -1,0 +1,42 @@
+# Windows kurulum dosyasini (.exe) uretir.
+# Elinizde Windows gelistirme makinesi yoksa bu is akisi installer'i sizin yerinize
+# uretir: Actions sekmesinden calistirin, ciktiyi "Artifacts" bolumunden indirin.
+name: Windows kurulum dosyasi
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Bagimliliklari kur
+        run: npm ci
+
+      - name: Tip denetimi
+        run: npm run typecheck
+
+      - name: Testler
+        run: npm test
+
+      - name: Derle
+        run: npm run build
+
+      - name: Kurulum dosyasini uret
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Ciktiyi yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: dagcihan-pos-kurulum
+          path: release/*.exe
+          if-no-files-found: error

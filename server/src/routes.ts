@@ -5,7 +5,7 @@
  * organizasyon/magaza kapsami ister. Terminal token'i yonetim uclarina erisemez.
  */
 import { randomUUID } from 'node:crypto';
-import type { Database } from './db.ts';
+import type { Database, QueryParam } from './db.ts';
 import type { HttpServer, RequestContext } from './http.ts';
 import type { ServerConfig } from './lib/config.ts';
 import { badRequest, conflict, forbidden, notFound, unauthorized, validation } from './lib/errors.ts';
@@ -1016,40 +1016,278 @@ export function registerRoutes(server: HttpServer, db: Database, config: ServerC
 
   // ============================ /orders (model hazir, arayuz yok) ============================
 
+  // ======================== /orders (online siparis) ========================
+  //
+  // E-ticaret siparisleri odeme gecidinden buraya yazilir, kasa buradan ceker.
+  // Terminal YALNIZCA kendi magazasinin siparislerini gorur ve yalnizca
+  // durumunu degistirebilir; siparis olusturamaz veya tutar degistiremez.
+
+  const ORDER_STATUSES = [
+    'DRAFT', 'PENDING_PAYMENT', 'PAID', 'PREPARING', 'READY',
+    'FULFILLED', 'CANCELLED', 'REFUNDED',
+  ] as const;
+
+  /** Kasiyerin yapabilecegi gecisler. Para ile ilgili durumlar disaridadir. */
+  const TERMINAL_TRANSITIONS: Record<string, readonly string[]> = {
+    PAID: ['PREPARING', 'CANCELLED'],
+    PREPARING: ['READY', 'CANCELLED'],
+    READY: ['FULFILLED', 'CANCELLED'],
+  };
+
+  const orderScopeFilter = (principal: Principal): { sql: string; params: QueryParam[] } =>
+    principal.kind === 'TERMINAL'
+      ? { sql: 'o.organization_id = $1 AND o.store_id = $2', params: [principal.organizationId, principal.storeId] }
+      : { sql: 'o.organization_id = $1', params: [principal.organizationId] };
+
   server.route('GET', '/api/v1/orders', async (context) => {
     const principal = context.principal!;
     requirePermission(principal, 'orders.read');
-    return db.query(
-      `SELECT id, order_no, channel, status, total, placed_at, created_at
-         FROM orders WHERE organization_id = $1 ORDER BY created_at DESC LIMIT $2`,
-      [principal.organizationId, limitOf(context, 50, 200)],
+    const scope = orderScopeFilter(principal);
+    const params: QueryParam[] = [...scope.params];
+
+    // Kasa yalnizca kendisini ilgilendiren durumlari ister (varsayilan: acik siparisler).
+    const statusRaw = optional(context.query.get('status'));
+    let statusClause = "AND o.status IN ('PAID','PREPARING','READY')";
+    if (statusRaw !== null) {
+      const wanted = statusRaw.split(',').map((v) => v.trim().toUpperCase())
+        .filter((v) => (ORDER_STATUSES as readonly string[]).includes(v));
+      if (wanted.length === 0) throw validation('status gecersiz');
+      params.push(wanted);
+      statusClause = `AND o.status = ANY($${params.length})`;
+    } else if (statusRaw === null && context.query.get('all') === '1') {
+      statusClause = '';
+    }
+
+    // Artimli cekme: yalnizca degisenler.
+    const since = optional(context.query.get('since'));
+    let sinceClause = '';
+    if (since !== null) {
+      const parsed = new Date(since);
+      if (Number.isNaN(parsed.getTime())) throw validation('since gecersiz (ISO tarih bekleniyor)');
+      params.push(parsed);
+      sinceClause = `AND o.updated_at > $${params.length}`;
+    }
+
+    params.push(limitOf(context, 100, 500));
+
+    const orders = await db.query<{ id: string }>(
+      `SELECT o.id, o.order_no, o.channel, o.status, o.currency,
+              o.subtotal, o.discount_total, o.tax_total, o.shipping_total, o.total,
+              o.external_ref, o.notes, o.placed_at, o.created_at, o.updated_at,
+              c.full_name AS customer_name, c.phone AS customer_phone,
+              c.email AS customer_email, c.address AS customer_address
+         FROM orders o
+         LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE ${scope.sql} ${statusClause} ${sinceClause}
+        ORDER BY o.created_at DESC
+        LIMIT $${params.length}`,
+      params,
     );
+
+    if (orders.length === 0) return [];
+
+    // Satirlar tek sorguda cekilir; siparis basina sorgu acilmaz.
+    const lines = await db.query<{ order_id: string }>(
+      `SELECT order_id, line_no, name_snapshot, unit, quantity, unit_price, net_amount
+         FROM order_lines WHERE order_id = ANY($1) ORDER BY order_id, line_no`,
+      [orders.map((o) => o.id) as unknown as object],
+    );
+    const byOrder = new Map<string, unknown[]>();
+    for (const line of lines) {
+      const list = byOrder.get(line.order_id) ?? [];
+      list.push(line);
+      byOrder.set(line.order_id, list);
+    }
+
+    return orders.map((order) => ({ ...order, lines: byOrder.get(order.id) ?? [] }));
   });
 
+  server.route('GET', '/api/v1/orders/:id', async (context) => {
+    const principal = context.principal!;
+    requirePermission(principal, 'orders.read');
+    const id = str(context.params.id, 'id');
+    const scope = orderScopeFilter(principal);
+
+    const order = await db.one(
+      `SELECT o.*, c.full_name AS customer_name, c.phone AS customer_phone,
+              c.email AS customer_email, c.address AS customer_address
+         FROM orders o LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE o.id = $${scope.params.length + 1} AND ${scope.sql}`,
+      [...scope.params, id],
+    );
+    if (order === undefined) throw notFound('Siparis bulunamadi');
+
+    const [lines, history] = await Promise.all([
+      db.query('SELECT * FROM order_lines WHERE order_id = $1 ORDER BY line_no', [id]),
+      db.query(
+        `SELECT from_status, to_status, reason, actor_type, changed_at
+           FROM order_status_history WHERE order_id = $1 ORDER BY changed_at`, [id]),
+    ]);
+
+    return { ...order, lines, history };
+  });
+
+  /**
+   * Siparisi olustur/guncelle. Odeme gecidi bu ucu kullanir.
+   * external_ref ayni ise AYNI siparis guncellenir; mukerrer siparis olusmaz.
+   */
   server.route('POST', '/api/v1/orders', async (context) => {
     const principal = context.principal!;
     requirePermission(principal, 'orders.write');
+    // Terminal siparis OLUSTURAMAZ; yalnizca durum degistirebilir.
+    if (principal.kind === 'TERMINAL') throw forbidden('Kasa siparis olusturamaz');
+
     const storeId = optional(context.body.storeId);
     if (storeId !== null) requireStoreScope(principal, storeId);
 
+    const externalRef = optional(context.body.externalRef);
+    const status = (optional(context.body.status) ?? 'PENDING_PAYMENT').toUpperCase();
+    if (!(ORDER_STATUSES as readonly string[]).includes(status)) {
+      throw validation('status gecersiz', { field: 'status' });
+    }
+
+    const rawLines = Array.isArray(context.body.lines) ? context.body.lines : [];
+    if (rawLines.length === 0) throw validation('lines zorunlu');
+
+    const lines = rawLines.map((raw, index) => {
+      const line = raw as Record<string, unknown>;
+      const quantity = intOf(line.quantity, `lines[${index}].quantity`);
+      const unitPrice = intOf(line.unitPrice, `lines[${index}].unitPrice`);
+      if (quantity <= 0) throw validation(`lines[${index}].quantity 0'dan buyuk olmali`);
+      const unit = str(line.unit, `lines[${index}].unit`).toUpperCase();
+      if (unit !== 'EACH' && unit !== 'KG') throw validation(`lines[${index}].unit EACH veya KG olmali`);
+      return {
+        lineNo: index + 1,
+        name: str(line.name, `lines[${index}].name`),
+        unit,
+        quantity,
+        unitPrice,
+        netAmount: intOf(line.netAmount, `lines[${index}].netAmount`, quantity * unitPrice),
+      };
+    });
+
+    const customer = (context.body.customer ?? {}) as Record<string, unknown>;
+    const subtotal = intOf(context.body.subtotal, 'subtotal',
+      lines.reduce((sum, line) => sum + line.netAmount, 0));
+    const shippingTotal = intOf(context.body.shippingTotal, 'shippingTotal', 0);
+    const total = intOf(context.body.total, 'total', subtotal + shippingTotal);
+
     return db.tx(async (tx) => {
-      const order = await tx.one<{ id: string; order_no: string }>(
-        `INSERT INTO orders (organization_id, store_id, channel, order_no, status, notes)
-         VALUES ($1,$2,$3,$4,'DRAFT',$5) RETURNING id, order_no`,
+      let customerId: string | null = null;
+      const fullName = optional(customer.fullName);
+      if (fullName !== null) {
+        const created = await tx.one<{ id: string }>(
+          `INSERT INTO customers (organization_id, full_name, phone, email, address)
+           VALUES ($1,$2,$3,$4,$5) RETURNING id`,
+          [
+            principal.organizationId, fullName, optional(customer.phone),
+            optional(customer.email), JSON.stringify(customer.address ?? {}),
+          ]);
+        customerId = created!.id;
+      }
+
+      // external_ref ayni ise siparis yeniden yazilmaz, guncellenir.
+      const order = await tx.one<{ id: string; order_no: string; status: string }>(
+        `INSERT INTO orders (organization_id, store_id, customer_id, channel, order_no,
+                             status, currency, subtotal, shipping_total, total,
+                             external_ref, notes, placed_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'TRY',$7,$8,$9,$10,$11,now())
+         ON CONFLICT (organization_id, external_ref) WHERE external_ref IS NOT NULL
+         DO UPDATE SET status = EXCLUDED.status, total = EXCLUDED.total,
+                       subtotal = EXCLUDED.subtotal, shipping_total = EXCLUDED.shipping_total,
+                       updated_at = now()
+         RETURNING id, order_no, status`,
         [
-          principal.organizationId, storeId,
+          principal.organizationId, storeId, customerId,
           optional(context.body.channel) ?? 'ONLINE',
           optional(context.body.orderNo) ?? `ORD-${randomUUID().slice(0, 8).toUpperCase()}`,
-          optional(context.body.notes),
+          status, subtotal, shippingTotal, total, externalRef, optional(context.body.notes),
         ]);
+
+      // Satirlar yeniden yazilir (guncelleme durumunda cift satir olusmasin).
+      await tx.exec('DELETE FROM order_lines WHERE order_id = $1', [order!.id]);
+      for (const line of lines) {
+        await tx.exec(
+          `INSERT INTO order_lines (order_id, line_no, name_snapshot, unit, quantity,
+                                    unit_price, net_amount)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [order!.id, line.lineNo, line.name, line.unit, line.quantity, line.unitPrice, line.netAmount]);
+      }
+
       await tx.exec(
         `INSERT INTO order_status_history (order_id, to_status, actor_type, actor_id)
-         VALUES ($1,'DRAFT',$2,$3)`,
+         VALUES ($1,$2,$3,$4)`,
+        [order!.id, status, principal.kind, asUser(principal).userId]);
+
+      await tx.exec(
+        `INSERT INTO audit_log (organization_id, store_id, actor_type, actor_id, actor_name,
+                                action, entity_type, entity_id, after_state, request_id)
+         VALUES ($1::uuid,$2,'USER',$3,$4,'order.upserted','order',$5,$6,$7)`,
         [
-          order!.id, principal.kind,
+          principal.organizationId, storeId, asUser(principal).userId, asUser(principal).displayName,
+          order!.id, JSON.stringify({ externalRef, status, total }), context.requestId,
+        ]);
+
+      return { id: order!.id, orderNo: order!.order_no, status: order!.status };
+    });
+  });
+
+  /** Kasadan durum degistirme. Izinli gecisler disinda islem yapilmaz. */
+  server.route('POST', '/api/v1/orders/:id/status', async (context) => {
+    const principal = context.principal!;
+    requirePermission(principal, 'orders.write');
+    const id = str(context.params.id, 'id');
+    const toStatus = str(context.body.status, 'status').toUpperCase();
+    if (!(ORDER_STATUSES as readonly string[]).includes(toStatus)) {
+      throw validation('status gecersiz', { field: 'status' });
+    }
+
+    const scope = orderScopeFilter(principal);
+    const order = await db.one<{ id: string; status: string; store_id: string | null }>(
+      `SELECT o.id, o.status, o.store_id FROM orders o
+        WHERE o.id = $${scope.params.length + 1} AND ${scope.sql}`,
+      [...scope.params, id]);
+    if (order === undefined) throw notFound('Siparis bulunamadi');
+
+    // Kasa yalnizca operasyonel gecisleri yapabilir; iade/odeme durumlarina dokunamaz.
+    if (principal.kind === 'TERMINAL') {
+      const allowed = TERMINAL_TRANSITIONS[order.status] ?? [];
+      if (!allowed.includes(toStatus)) {
+        throw conflict(`Kasa ${order.status} durumundan ${toStatus} durumuna gecis yapamaz`);
+      }
+    }
+
+    if (order.status === toStatus) return { ok: true, status: toStatus, changed: false };
+
+    await db.tx(async (tx) => {
+      await tx.exec(
+        `UPDATE orders SET status = $2, updated_at = now(),
+                fulfilled_at = CASE WHEN $2 = 'FULFILLED' THEN now() ELSE fulfilled_at END,
+                cancelled_at = CASE WHEN $2 = 'CANCELLED' THEN now() ELSE cancelled_at END
+          WHERE id = $1`, [id, toStatus]);
+      await tx.exec(
+        `INSERT INTO order_status_history (order_id, from_status, to_status, reason,
+                                           actor_type, actor_id)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
+        [
+          id, order.status, toStatus, optional(context.body.reason), principal.kind,
           principal.kind === 'USER' ? principal.userId : principal.terminalId,
         ]);
-      return order;
+      await tx.exec(
+        `INSERT INTO audit_log (organization_id, store_id, terminal_id, actor_type, actor_id,
+                                action, entity_type, entity_id, before_state, after_state, request_id)
+         VALUES ($1,$2,$3,$4,$5,'order.status_changed','order',$6,$7,$8,$9)`,
+        [
+          principal.organizationId, order.store_id,
+          principal.kind === 'TERMINAL' ? principal.terminalId : null,
+          principal.kind,
+          principal.kind === 'USER' ? principal.userId : principal.terminalId,
+          id, JSON.stringify({ status: order.status }), JSON.stringify({ status: toStatus }),
+          context.requestId,
+        ]);
     });
+
+    context.log.info('siparis durumu degisti', { orderId: id, from: order.status, to: toStatus });
+    return { ok: true, status: toStatus, changed: true };
   });
 }

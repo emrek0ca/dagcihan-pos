@@ -135,6 +135,7 @@ function applyState(next) {
   state.sync = next.sync;
   state.hardwareSetupCompleted = next.hardwareSetupCompleted;
   state.parkedCount = next.parkedCount;
+  state.onlineOrders = next.onlineOrders;
   if (next.store) $('storeName').textContent = next.store.name;
   render();
 }
@@ -149,6 +150,17 @@ function render() {
 
   const admin = $('adminChip');
   admin.hidden = !state.user || state.user.role === 'CASHIER';
+
+  // Siparis butonu yalnizca merkez baglantisi varken gorunur: baglanti yoksa
+  // gosterilecek siparis de yoktur, kasiyeri bos butonla mesgul etmeyiz.
+  const ordersChip = $('ordersChip');
+  if (ordersChip) {
+    const syncEnabled = Boolean(state.sync && state.sync.enabled);
+    ordersChip.hidden = !syncEnabled || !state.user;
+    if (syncEnabled && state.user) {
+      updateOrdersChip(state.onlineOrders ? state.onlineOrders.unseen : 0);
+    }
+  }
 
   updateBanner();
 
@@ -360,6 +372,7 @@ document.addEventListener('keydown', (event) => {
 
 const SHORTCUTS = {
   F1: 'pay', F2: 'search', F3: 'quantity', F4: 'discount',
+  F5: 'orders',
   F6: 'park', F7: 'parked', F8: 'reprint', F9: 'voidSale', F10: 'cash',
   Delete: 'voidLine',
 };
@@ -502,6 +515,7 @@ function handleAction(action) {
     case 'reprint': showReprint(); break;
     case 'voidSale': voidSale(); break;
     case 'cash': showCash(); break;
+    case 'orders': openOrders(); break;
   }
 }
 
@@ -1183,3 +1197,237 @@ setInterval(() => {
     showLogin();
   }
 })();
+
+/* =====================================================================
+ *  WEB SIPARISLERI
+ *
+ *  Siparisler merkezi sunucudan senkron isciyle cekilir; burasi yalnizca
+ *  gosterir. Durum degisikligi ONCE merkeze yazilir (kasa tek basina karar
+ *  vermez), merkez onaylamazsa ekranda da degismez.
+ * ===================================================================== */
+
+let ordersUnseen = 0;
+let ordersOpen = false;
+
+const ORDER_STATUS_TEXT = {
+  PAID: 'Yeni siparis',
+  PREPARING: 'Hazirlaniyor',
+  READY: 'Hazir',
+  FULFILLED: 'Teslim edildi',
+  CANCELLED: 'Iptal',
+};
+
+/** Kasiyerin yapabilecegi gecisler. Sunucu da AYNI kurali uygular. */
+const ORDER_NEXT = {
+  PAID: [['PREPARING', 'Hazirlamaya basla']],
+  PREPARING: [['READY', 'Hazir']],
+  READY: [['FULFILLED', 'Teslim edildi']],
+};
+
+/** Yeni siparis sesi. Harici dosya yok; kisa bir bip uretilir. */
+function playOrderChime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    const play = (freq, startAt, duration) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime + startAt);
+      gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + startAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + startAt + duration);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(ctx.currentTime + startAt);
+      osc.stop(ctx.currentTime + startAt + duration + 0.02);
+    };
+    play(880, 0, 0.18);
+    play(1320, 0.2, 0.22);
+    setTimeout(() => ctx.close().catch(() => {}), 900);
+  } catch (error) {
+    // Ses cikmamasi satisi engellemez; sessizce gecilir.
+  }
+}
+
+function updateOrdersChip(unseen) {
+  const chip = $('ordersChip');
+  const badge = $('ordersBadge');
+  if (!chip || !badge) return;
+
+  const previous = ordersUnseen;
+  ordersUnseen = Number(unseen) || 0;
+
+  badge.hidden = ordersUnseen === 0;
+  badge.textContent = String(ordersUnseen);
+  chip.classList.toggle('has-new', ordersUnseen > 0);
+
+  // Sayi ARTTIYSA yeni siparis gelmistir: kasiyeri sesle uyar.
+  if (ordersUnseen > previous) {
+    playOrderChime();
+    if (!ordersOpen) toast(`Yeni web siparisi geldi (${ordersUnseen})`, 'warn');
+  }
+}
+
+function formatKurus(value) {
+  return (Number(value || 0) / 100).toLocaleString('tr-TR', {
+    minimumFractionDigits: 2, maximumFractionDigits: 2,
+  });
+}
+
+function formatOrderLine(line) {
+  if (line.unit === 'KG') {
+    const kg = Number(line.quantity) / 1000;
+    return kg >= 1 ? `${kg.toLocaleString('tr-TR')} kg` : `${Number(line.quantity)} g`;
+  }
+  return `${line.quantity} adet`;
+}
+
+async function openOrders() {
+  ordersOpen = true;
+  openModal('Web Siparisleri', (body) => {
+    body.innerHTML = '<div class="order-empty">Yukleniyor...</div>';
+    loadOrdersInto(body);
+  }, { wide: true });
+
+  const overlay = $('modalOverlay');
+  const stop = () => { ordersOpen = false; overlay.removeEventListener('click', stop); };
+  overlay.addEventListener('click', stop);
+}
+
+async function loadOrdersInto(body) {
+  let payload;
+  try {
+    payload = await api('GET', '/api/orders/online');
+  } catch (error) {
+    body.innerHTML = '';
+    body.appendChild(el('div', { className: 'order-empty', textContent:
+      'Siparisler alinamadi: ' + (error.userMessage || error.message) }));
+    return;
+  }
+
+  const orders = payload.orders || [];
+  body.innerHTML = '';
+
+  if (payload.lastError) {
+    body.appendChild(el('div', { className: 'order-warning', textContent:
+      'Merkezle son baglanti hatasi: ' + payload.lastError }));
+  }
+
+  if (orders.length === 0) {
+    body.appendChild(el('div', { className: 'order-empty', textContent: 'Bekleyen web siparisi yok.' }));
+  } else {
+    const list = el('div', { className: 'order-list' });
+    orders.forEach((order) => list.appendChild(buildOrderCard(order, body)));
+    body.appendChild(list);
+  }
+
+  // Ekranda gorulen siparisler "goruldu" isaretlenir; uyari tekrar calmaz.
+  const unseenIds = orders.filter((o) => !o.seenAt).map((o) => o.id);
+  if (unseenIds.length > 0) {
+    try {
+      await api('POST', '/api/orders/online/seen', { ids: unseenIds });
+      updateOrdersChip(0);
+    } catch (error) {
+      // Isaretleme basarisiz olsa da liste gosterilmeye devam eder.
+    }
+  }
+}
+
+function buildOrderCard(order, body) {
+  const card = el('div', { className: 'order-card' + (order.seenAt ? '' : ' is-new') });
+
+  const head = el('div', { className: 'row' }, [
+    el('span', { className: 'no', textContent: order.orderNo || order.id.slice(0, 8) }),
+    el('span', { className: 'order-pill ' + order.status,
+                 textContent: ORDER_STATUS_TEXT[order.status] || order.status }),
+    el('span', { className: 'spacer' }),
+    el('span', { className: 'total', textContent: formatKurus(order.total) + ' TL' }),
+  ]);
+  card.appendChild(head);
+
+  const address = order.address || {};
+  const whoParts = [order.customerName, order.customerPhone,
+    [address.address, address.district, address.city].filter(Boolean).join(' ')];
+  card.appendChild(el('div', { className: 'who', textContent: whoParts.filter(Boolean).join(' - ') }));
+
+  const lines = el('div', { className: 'lines' });
+  (order.lines || []).forEach((line) => {
+    lines.appendChild(el('div', {}, [
+      el('span', { textContent: `${line.name} - ${formatOrderLine(line)}` }),
+      el('span', { textContent: formatKurus(line.netAmount) + ' TL' }),
+    ]));
+  });
+  if (Number(order.shippingTotal) > 0) {
+    lines.appendChild(el('div', {}, [
+      el('span', { textContent: 'Kargo' }),
+      el('span', { textContent: formatKurus(order.shippingTotal) + ' TL' }),
+    ]));
+  }
+  card.appendChild(lines);
+
+  if (order.notes) {
+    card.appendChild(el('div', { className: 'note', textContent: 'Not: ' + order.notes }));
+  }
+
+  const actions = el('div', { className: 'actions' });
+  (ORDER_NEXT[order.status] || []).forEach(([status, label]) => {
+    actions.appendChild(el('button', {
+      className: 'btn primary', textContent: label,
+      onclick: () => changeOrderStatus(order.id, status, body),
+    }));
+  });
+  actions.appendChild(el('button', {
+    className: 'btn', textContent: 'Fis yazdir',
+    onclick: () => printOrderTicket(order),
+  }));
+  card.appendChild(actions);
+
+  return card;
+}
+
+async function changeOrderStatus(orderId, status, body) {
+  try {
+    await api('POST', `/api/orders/online/${orderId}/status`, { status });
+    toast('Siparis durumu guncellendi', 'ok');
+    await loadOrdersInto(body);
+  } catch (error) {
+    toast(error.userMessage || error.message || 'Durum degistirilemedi', 'error');
+  }
+}
+
+/** Hazirlik fisi: mutfak/paketleme icin siparis dokumu. */
+function printOrderTicket(order) {
+  const lines = (order.lines || [])
+    .map((line) => `${line.name} - ${formatOrderLine(line)}`)
+    .join('\n');
+  const address = order.address || {};
+  const text = [
+    'WEB SIPARISI',
+    order.orderNo || order.id.slice(0, 8),
+    '',
+    order.customerName,
+    order.customerPhone,
+    [address.address, address.district, address.city].filter(Boolean).join(' '),
+    '',
+    lines,
+    '',
+    'TOPLAM: ' + formatKurus(order.total) + ' TL',
+    order.notes ? 'NOT: ' + order.notes : '',
+  ].filter(Boolean).join('\n');
+
+  // Tarayici yazdirma penceresi: fis yazicisi Windows'ta varsayilan yaziciysa
+  // dogrudan basar. ESC/POS kuyrugu satis fisleri icindir, karistirmayiz.
+  const frame = document.createElement('iframe');
+  frame.style.position = 'fixed';
+  frame.style.right = '100%';
+  document.body.appendChild(frame);
+  frame.contentDocument.body.innerHTML =
+    `<pre style="font:14px/1.4 monospace;white-space:pre-wrap">${text.replace(/[<>&]/g, '')}</pre>`;
+  frame.contentWindow.focus();
+  frame.contentWindow.print();
+  setTimeout(() => frame.remove(), 1500);
+}
+
+const ordersChipEl = document.getElementById('ordersChip');
+if (ordersChipEl) ordersChipEl.addEventListener('click', openOrders);

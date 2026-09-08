@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;">
+<title>Dagcihan Siparis Takip</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">S</span>
+    <span>Siparis Takip</span>
+  </div>
+  <div class="spacer"></div>
+  <div class="conn" id="conn"><span class="dot"></span><span id="connText">baglaniyor</span></div>
+  <button class="btn ghost" id="refreshBtn" type="button">Yenile</button>
+  <button class="btn ghost" id="logoutBtn" type="button" hidden>Cikis</button>
+</header>
+
+<main id="main">
+  <section class="login" id="loginView">
+    <form class="login-card" id="loginForm">
+      <h1>Giris</h1>
+      <p class="hint" id="serverHint"></p>
+      <label>E-posta<input type="email" id="email" autocomplete="username" required></label>
+      <label>Parola<input type="password" id="password" autocomplete="current-password" required></label>
+      <label class="row"><input type="checkbox" id="remember" checked> Bu bilgisayarda hatirla</label>
+      <div class="error" id="loginError"></div>
+      <button class="btn primary block" id="loginBtn" type="submit">Giris yap</button>
+    </form>
+  </section>
+
+  <section class="orders" id="ordersView" hidden>
+    <div class="filters">
+      <button class="tab active" data-filter="OPEN" type="button">Acik siparisler</button>
+      <button class="tab" data-filter="PAID" type="button">Yeni</button>
+      <button class="tab" data-filter="PREPARING" type="button">Hazirlaniyor</button>
+      <button class="tab" data-filter="READY" type="button">Hazir</button>
+      <div class="spacer"></div>
+      <span class="count" id="countLabel"></span>
+    </div>
+    <div class="warning" id="warning" hidden></div>
+    <div class="list" id="list"></div>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

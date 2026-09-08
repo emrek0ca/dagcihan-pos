@@ -6,7 +6,6 @@
  * Sunucu erisilemezse olaylar outbox'ta bekler; POS normal calismaya devam eder.
  */
 import type { Db } from '../../data/db.ts';
-import { OnlineOrders, type RemoteOrder } from '../orders/online-orders.ts';
 import type { Clock } from '../../core/clock.ts';
 import type { AuditLog } from '../audit/audit.ts';
 import { Outbox, SyncStateStore } from './outbox.ts';
@@ -57,9 +56,6 @@ export class SyncWorker {
   readonly outbox: Outbox;
   readonly #state: SyncStateStore;
   readonly #applier: SyncApplier;
-  readonly #onlineOrders: OnlineOrders;
-  /** Son siparis cekme hatasi. Senkronu durdurmaz, yalnizca bildirilir. */
-  #lastOrderError: string | null = null;
   readonly #credentials: CredentialStore;
   readonly #options: Required<SyncWorkerOptions>;
   readonly #listeners: ((status: SyncStatus) => void)[] = [];
@@ -79,8 +75,6 @@ export class SyncWorker {
     this.outbox = new Outbox(deps.db, deps.clock);
     this.#state = new SyncStateStore(deps.db, deps.clock);
     this.#applier = new SyncApplier(deps.db, deps.clock, deps.audit);
-    // Saat kaynagi tek noktadan gelir; online_orders zaman damgalari ISO metindir.
-    this.#onlineOrders = new OnlineOrders(deps.db, () => new Date(deps.clock.now()).toISOString());
     this.#credentials = deps.credentials;
     this.#options = {
       pushBatchSize: deps.options?.pushBatchSize ?? 50,
@@ -230,14 +224,6 @@ export class SyncWorker {
       this.#setState('SYNCING');
       await this.pushPending();
       await this.pullChanges();
-      // Web siparisleri katalogdan AYRI cekilir ve hatasi YUTULUR: siparis
-      // ucu erisilemez olsa bile satis, stok ve fiyat senkronu calismaya
-      // devam eder. Kasanin asil isi satistir; siparis ekrani ikincildir.
-      try {
-        await this.pullOnlineOrders();
-      } catch (error) {
-        this.#lastOrderError = error instanceof Error ? error.message : String(error);
-      }
       this.#state.set(KEY.lastSuccessAt, this.#clock.now());
       this.#setState('ONLINE');
     } catch (error) {
@@ -332,39 +318,6 @@ export class SyncWorker {
       if (!page.hasMore) break;
     }
     return applied;
-  }
-
-  /**
-   * Web siparislerini ceker. Yalnizca son cekilmeden sonra DEGISENLER alinir.
-   * Hata halinde senkronun geri kalani bozulmaz; bir sonraki turda tekrar denenir.
-   */
-  async pullOnlineOrders(): Promise<number> {
-    if (this.#client === null) return 0;
-
-    const since = this.#onlineOrders.lastRemoteUpdatedAt();
-    const rows = (await this.#client.orders(since, 100)) as RemoteOrder[];
-    if (!Array.isArray(rows) || rows.length === 0) return 0;
-
-    const result = this.#onlineOrders.upsertMany(rows);
-    this.#lastOrderError = null;
-    return result.created + result.updated;
-  }
-
-  /** Kasadan siparis durumu degistirir: ONCE merkeze yazilir, sonra yerele. */
-  async changeOrderStatus(orderId: string, status: string, reason?: string): Promise<void> {
-    if (this.#client === null) {
-      throw new Error('Merkezi sunucuya bagli degil. Siparis durumu degistirilemez.');
-    }
-    await this.#client.changeOrderStatus(orderId, status, reason);
-    this.#onlineOrders.applyStatus(orderId, status);
-  }
-
-  get onlineOrders(): OnlineOrders {
-    return this.#onlineOrders;
-  }
-
-  get lastOrderError(): string | null {
-    return this.#lastOrderError;
   }
 
   /** Ilk kurulum: merkezi katalogun sayfa sayfa indirilmesi */

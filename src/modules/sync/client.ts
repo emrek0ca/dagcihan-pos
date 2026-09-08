@@ -209,24 +209,6 @@ export class SyncClient {
     return this.#call('GET', '/api/v1/sync/inventory');
   }
 
-  /**
-   * Web siparisleri. `since` verilirse yalnizca o andan sonra DEGISENLER gelir;
-   * her senkronda tum siparis gecmisi indirilmez.
-   */
-  orders(since: string | null, limit = 100): Promise<unknown[]> {
-    const query = new URLSearchParams({ limit: String(limit) });
-    if (since !== null) query.set('since', since);
-    return this.#call('GET', `/api/v1/orders?${query}`);
-  }
-
-  /** Kasadan durum degisikligi. Merkez reddederse hata firlatir. */
-  changeOrderStatus(orderId: string, status: string, reason?: string): Promise<{ status: string }> {
-    return this.#call('POST', `/api/v1/orders/${encodeURIComponent(orderId)}/status`, {
-      status,
-      ...(reason === undefined ? {} : { reason }),
-    });
-  }
-
   status(): Promise<Record<string, unknown>> {
     return this.#call('GET', '/api/v1/sync/status');
   }

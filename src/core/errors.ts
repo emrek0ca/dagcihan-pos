@@ -14,9 +14,6 @@ export type PosErrorCode =
   | 'PRODUCT_UNIT_MISMATCH'
   | 'PRICE_UNAVAILABLE'
   | 'VALUE_OUT_OF_RANGE'
-  // web siparisi
-  | 'ONLINE_ORDER_NOT_FOUND'
-  | 'ONLINE_ORDER_INVALID_TRANSITION'
   // satis
   | 'SALE_NOT_FOUND'
   | 'SALE_NOT_OPEN'
@@ -64,8 +61,6 @@ export interface PosErrorOptions {
 }
 
 const DEFAULT_USER_MESSAGES: Partial<Record<PosErrorCode, string>> = {
-  ONLINE_ORDER_NOT_FOUND: 'Siparis bulunamadi.',
-  ONLINE_ORDER_INVALID_TRANSITION: 'Bu siparis bu duruma gecirilemez.',
   BARCODE_INVALID: 'Barkod okunamadi. Lutfen tekrar okutun.',
   BARCODE_UNKNOWN: 'Bu barkod sistemde tanimli degil.',
   WEIGHTED_FORMAT_NOT_CONFIGURED:

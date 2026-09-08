@@ -16,7 +16,6 @@ import { quantity } from '../core/quantity/quantity.ts';
 import { ScanQueue, type ScanOutcome } from '../modules/scanner/queue.ts';
 import { requirePermission, type User } from '../modules/users/users.ts';
 import { registerAdminRoutes } from './admin-routes.ts';
-import { CASHIER_TRANSITIONS, STATUS_LABELS } from '../modules/orders/online-orders.ts';
 import { PROJECT_ROOT } from '../config/load.ts';
 import type { HidWedgeScanner } from '../hardware/scanner/adapters.ts';
 
@@ -347,16 +346,6 @@ export class PosServer {
         };
       })(),
       store: { name: this.#app.config.store.name },
-      // Kasiyerin henuz gormedigi web siparisi sayisi. Rozet ve sesli uyari
-      // bunun uzerinden calisir; her durum guncellemesinde tasinir ki
-      // kasiyer siparisi kacirmasin.
-      onlineOrders: (() => {
-        try {
-          return { unseen: this.#app.sync.onlineOrders.unseenCount() };
-        } catch {
-          return { unseen: 0 };
-        }
-      })(),
     };
   }
 
@@ -631,63 +620,6 @@ export class PosServer {
 
     this.#route('GET', '/api/print/jobs', () => this.#app.printQueue.pending());
 
-    // ---------------------------- web siparisleri ----------------------------
-
-    this.#route('GET', '/api/orders/online', (context) => {
-      this.#requireUser(context);
-      const statusParam = context.url.searchParams.get('status');
-      const statuses = statusParam === null
-        ? ['PAID', 'PREPARING', 'READY']
-        : statusParam.split(',').map((value: string) => value.trim().toUpperCase()).filter(Boolean);
-      return {
-        orders: this.#app.sync.onlineOrders.list(statuses),
-        unseen: this.#app.sync.onlineOrders.unseenCount(),
-        lastError: this.#app.sync.lastOrderError,
-      };
-    });
-
-    this.#route('GET', '/api/orders/online/:id', ({ params }) => {
-      const order = this.#app.sync.onlineOrders.get(String(params.id));
-      if (order === null) throw new PosError('ONLINE_ORDER_NOT_FOUND', 'Siparis bulunamadi');
-      return order;
-    });
-
-    this.#route('POST', '/api/orders/online/seen', (context) => {
-      const ids = Array.isArray(context.body.ids) ? context.body.ids.map(String) : [];
-      return { marked: this.#app.sync.onlineOrders.markSeen(ids) };
-    });
-
-    /**
-     * Durum degisikligi ONCE merkeze yazilir. Merkez reddederse yerelde de
-     * degismez; kasiyer yaniltici bir durum gormez.
-     */
-    this.#route('POST', '/api/orders/online/:id/status', async (context) => {
-      const user = this.#requireUser(context);
-      const id = String(context.params.id);
-      const status = String(context.body.status ?? '').toUpperCase();
-      const order = this.#app.sync.onlineOrders.get(id);
-      if (order === null) throw new PosError('ONLINE_ORDER_NOT_FOUND', 'Siparis bulunamadi');
-
-      const allowed = CASHIER_TRANSITIONS[order.status] ?? [];
-      if (!allowed.includes(status)) {
-        throw new PosError('ONLINE_ORDER_INVALID_TRANSITION',
-          `${order.status} -> ${status} gecisi yapilamaz`, {
-            userMessage: `${STATUS_LABELS[order.status] ?? order.status} durumundaki siparis bu duruma gecirilemez.`,
-          });
-      }
-
-      await this.#app.sync.changeOrderStatus(id, status,
-        typeof context.body.reason === 'string' ? context.body.reason : undefined);
-      this.#app.audit.record({
-        type: 'ONLINE_ORDER_STATUS',
-        entity: 'ONLINE_ORDER',
-        entityId: id,
-        userId: user.id,
-        data: { from: order.status, to: status },
-      });
-      this.#pushState();
-      return { ok: true, status };
-    });
   }
 
   #discount(body: Record<string, unknown>): { type: 'PERCENT' | 'AMOUNT'; value: number } | null {

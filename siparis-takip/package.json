@@ -1,0 +1,40 @@
+{
+  "name": "dagcihan-siparis-takip",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Dagcihan web siparisleri takip uygulamasi",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win --x64",
+    "dist:dir": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^44.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.dagcihan.siparistakip",
+    "productName": "Dagcihan Siparis Takip",
+    "directories": { "output": "release" },
+    "files": ["main.js", "preload.cjs", "ui/**/*", "package.json"],
+    "asar": true,
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "Dagcihan-Siparis-Takip-Kurulum-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Siparis Takip",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "installerLanguages": ["tr_TR"],
+      "language": "1055"
+    },
+    "mac": { "target": ["dir"], "category": "public.app-category.business" },
+    "linux": { "target": ["dir"] }
+  }
+}
